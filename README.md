@@ -8,6 +8,7 @@ An open, multi-model agentic coding CLI — inspired by Claude Code.
 ┌─────────────────────────────────────────────────┐
 │                  cli.py (UI)                    │
 │  REPL loop · slash commands · Rich terminal UI  │
+│  AGENTCODE.md banner · /init template           │
 └──────────────────────┬──────────────────────────┘
                        │
 ┌──────────────────────▼──────────────────────────┐
@@ -27,6 +28,8 @@ An open, multi-model agentic coding CLI — inspired by Claude Code.
 │  read_file · write_file · edit_file             │
 │  run_command · list_directory                   │
 │  search_files · search_text                     │
+│  git_status · git_diff · git_log                │
+│  git_commit · git_branch · git_push             │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -63,6 +66,8 @@ Via [LiteLLM](https://docs.litellm.ai/docs/providers), AgentCode supports 100+ m
 
 ## Tools
 
+### File & Shell
+
 | Tool             | Description                          | Permission |
 |------------------|--------------------------------------|------------|
 | `read_file`      | Read file contents with line numbers | Auto       |
@@ -73,18 +78,42 @@ Via [LiteLLM](https://docs.litellm.ai/docs/providers), AgentCode supports 100+ m
 | `search_files`   | Find files by glob pattern           | Auto       |
 | `search_text`    | Grep for text across files           | Auto       |
 
+### Git
+
+| Tool          | Description                              | Permission |
+|---------------|------------------------------------------|------------|
+| `git_status`  | Show working tree status                 | Auto       |
+| `git_diff`    | Show staged or unstaged changes          | Auto       |
+| `git_log`     | Show recent commit history               | Auto       |
+| `git_commit`  | Stage files and create a commit          | Ask        |
+| `git_branch`  | List, create, or switch branches         | Ask        |
+| `git_push`    | Push commits to a remote                 | Ask        |
+
 **Permission model:** Read-only tools auto-approve. Write/execute tools ask before running (unless `--auto-approve` / `-y` flag is set).
+
+The agent understands natural language git requests:
+- *"show me what changed"* → `git_diff` / `git_status`
+- *"commit these changes with a good message"* → inspects diff, then `git_commit`
+- *"create a branch called feature/streaming"* → `git_branch`
+- *"push to origin"* → `git_push`
 
 ## Slash Commands
 
-| Command           | Description                    |
-|-------------------|--------------------------------|
-| `/model <name>`   | Switch LLM model on the fly    |
-| `/clear`          | Reset conversation history     |
-| `/compact`        | Force context window compaction|
-| `/tokens`         | Show estimated token usage     |
-| `/help`           | Show help                      |
-| `/exit`           | Quit                           |
+| Command           | Description                         |
+|-------------------|-------------------------------------|
+| `/model <name>`   | Switch LLM model on the fly         |
+| `/clear`          | Reset conversation history          |
+| `/compact`        | Force context window compaction     |
+| `/tokens`         | Show estimated token usage          |
+| `/init`           | Create an AGENTCODE.md template     |
+| `/help`           | Show help                           |
+| `/exit`           | Quit                                |
+
+## AGENTCODE.md
+
+AgentCode loads project-level instructions from `AGENTCODE.md` in your project directory (and global config from `~/.agentcode/AGENTCODE.md`), injecting them into the system prompt automatically.
+
+Run `/init` to generate a starter template, then edit it to define your project's coding standards, preferences, and constraints.
 
 ## How to Extend
 
@@ -93,11 +122,10 @@ Via [LiteLLM](https://docs.litellm.ai/docs/providers), AgentCode supports 100+ m
 1. Add the function schema to `TOOL_DEFINITIONS` in `tools.py`
 2. Implement the function (e.g., `_my_tool(...)`)
 3. Register it in `TOOL_MAP`
+4. If it's a write/execute tool, add its name to `WRITE_TOOLS` in `agent.py`
 
 ### Ideas for next features
 
-- **AGENTCODE.md** — project-level instructions file (like CLAUDE.md)
-- **Git integration** — auto-commit, branch management, PR creation
 - **MCP support** — connect to external services
 - **Subagents** — spawn parallel agents for subtasks
 - **Hooks** — run scripts before/after tool execution
@@ -106,12 +134,12 @@ Via [LiteLLM](https://docs.litellm.ai/docs/providers), AgentCode supports 100+ m
 
 ## Environment Variables
 
-| Variable                   | Description                       | Default                     |
-|----------------------------|-----------------------------------|-----------------------------|
-| `AGENTCODE_MODEL`          | Default model                     | `claude-sonnet-4-6`         |
-| `AGENTCODE_MAX_ITERATIONS` | Max tool-call iterations per turn | `25`                        |
-| `ANTHROPIC_API_KEY`        | Anthropic API key                 | —                           |
-| `OPENAI_API_KEY`           | OpenAI API key                    | —                           |
+| Variable                   | Description                       | Default             |
+|----------------------------|-----------------------------------|---------------------|
+| `AGENTCODE_MODEL`          | Default model                     | `claude-sonnet-4-6` |
+| `AGENTCODE_MAX_ITERATIONS` | Max tool-call iterations per turn | `25`                |
+| `ANTHROPIC_API_KEY`        | Anthropic API key                 | —                   |
+| `OPENAI_API_KEY`           | OpenAI API key                    | —                   |
 
 ## License
 
