@@ -2,7 +2,21 @@
 name = "agentcode"
 version = "1.0.0"
 description = "An open, multi-model agentic coding CLI — inspired by Claude Code"
+readme = "README.md"
+license = {file = "LICENSE"}
 requires-python = ">=3.11"
+authors = [
+    {name = "Vignesh Pai"},
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+    "Topic :: Software Development",
+    "Topic :: Utilities",
+]
 dependencies = [
     "litellm>=1.40.0",
     "rich>=13.0.0",
@@ -10,8 +24,19 @@ dependencies = [
     "mcp>=1.0.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/vigp17/AgentCode"
+Repository = "https://github.com/vigp17/AgentCode"
+"Bug Tracker" = "https://github.com/vigp17/AgentCode/issues"
+
 [project.scripts]
 agentcode = "cli:main"
+
+[project.optional-dependencies]
+dev = ["build", "twine"]
+
+[tool.setuptools]
+py-modules = ["cli", "agent", "tools", "router", "mcp_client", "settings"]
 
 [build-system]
 requires = ["setuptools>=68.0"]

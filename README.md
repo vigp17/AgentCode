@@ -45,20 +45,28 @@ An open, multi-model agentic coding CLI — inspired by Claude Code.
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-# or
-pip install litellm rich python-dotenv mcp
+# Option A: Install from PyPI
+pip install agentcode
 
-# 2. Add your API keys to .env
+# Option B: Install from source
+git clone https://github.com/vigp17/AgentCode.git
+cd AgentCode
+pip install -r requirements.txt
+```
+
+```bash
+# Add your API keys to a .env file in your project directory
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 GEMINI_API_KEY=...
+```
 
-# 3. Run
-python cli.py                           # Interactive REPL
-python cli.py "fix the failing tests"   # One-shot mode
-python cli.py --model gpt-4o            # Use a different model
+```bash
+# Run
+agentcode                               # Interactive REPL
+agentcode "fix the failing tests"       # One-shot mode
+agentcode --model gpt-4o               # Use a different model
+agentcode --init-settings              # Create a settings file
 ```
 
 ## Supported Models
@@ -131,6 +139,7 @@ Simple questions go to cheap/fast models. Complex multi-file tasks go to powerfu
 | `/compact`               | Force LLM-powered context compaction             |
 | `/tokens`                | Show estimated token usage                       |
 | `/init`                  | Create an AGENTCODE.md template                  |
+| `/settings`              | Show resolved settings and active config files   |
 | `/help`                  | Show help                                        |
 | `/exit`                  | Quit                                             |
 
@@ -206,7 +215,7 @@ Run `/init` to generate a starter template, then edit it to define your project'
 1. Add the function schema to `TOOL_DEFINITIONS` in `tools.py`
 2. Implement the function (e.g., `_my_tool(...)`)
 3. Register it in `TOOL_MAP`
-4. If it's a write/execute tool, add its name to `WRITE_TOOLS` in `agent.py`
+4. If it should require user approval, omit it from `permissions.auto_approve` in `.agentcode/settings.json`
 
 ## Environment Variables
 
@@ -217,6 +226,28 @@ Run `/init` to generate a starter template, then edit it to define your project'
 | `ANTHROPIC_API_KEY`        | Anthropic API key                 | —                   |
 | `OPENAI_API_KEY`           | OpenAI API key                    | —                   |
 | `GEMINI_API_KEY`           | Google Gemini API key             | —                   |
+
+## Publishing to PyPI
+
+```bash
+# 1. Install build tools
+pip install build twine
+
+# 2. Bump the version in pyproject.toml, then build
+python -m build
+
+# 3. Upload to PyPI
+twine upload dist/*
+```
+
+You'll be prompted for your PyPI credentials on first upload. Use an API token from [pypi.org/manage/account](https://pypi.org/manage/account) for security.
+
+For test uploads before going live:
+
+```bash
+twine upload --repository testpypi dist/*
+pip install --index-url https://test.pypi.org/simple/ agentcode
+```
 
 ## License
 
