@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 .env
 .agentcode_session.json
+.agentcode/mcp.json
 dist/
 build/
 *.egg-info/
