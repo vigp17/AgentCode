@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "auto_approve_all": false,
+    "auto_approve": [
+      "read_file",
+      "list_directory",
+      "search_files",
+      "search_text",
+      "git_status",
+      "git_log",
+      "git_diff",
+      "spawn_subagents"
+    ],
+    "deny": []
+  },
+  "model": {
+    "default": "claude-sonnet-4-6",
+    "routing": true,
+    "light": null,
+    "medium": null,
+    "heavy": null
+  },
+  "limits": {
+    "max_file_size": 1000000,
+    "max_output": 50000,
+    "max_search_results": 100,
+    "max_iterations": 25
+  },
+  "hooks": {}
+}

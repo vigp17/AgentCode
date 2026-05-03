@@ -21,6 +21,7 @@ from rich.markdown import Markdown
 from tools import TOOL_DEFINITIONS, execute_tool
 from router import ModelRouter, display_routing_decision
 from mcp_client import MCPManager
+from settings import Settings
 
 console = Console()
 
@@ -56,6 +57,7 @@ class AgentConfig:
     )
     router: ModelRouter | None = None
     mcp_manager: MCPManager | None = None
+    settings: Settings | None = None
 
 
 # ── Conversation ──────────────────────────────────────────────────────────────
@@ -136,8 +138,12 @@ class Conversation:
 
 # ── Hooks ─────────────────────────────────────────────────────────────────────
 
-def load_hooks(project_dir: str) -> dict:
+def load_hooks(project_dir: str, settings: Settings | None = None) -> dict:
     hooks: dict = {}
+    # settings.hooks has lowest priority
+    if settings and settings.hooks:
+        hooks.update(settings.hooks)
+    # hooks.json files override settings hooks
     for path in [Path.home() / ".agentcode" / "hooks.json",
                  Path(project_dir) / ".agentcode" / "hooks.json"]:
         if path.exists():
@@ -174,6 +180,36 @@ def _ask_permission(tool_name: str, args: dict) -> bool:
         return answer in ("y", "yes")
     except (EOFError, KeyboardInterrupt):
         return False
+
+
+# ── Permission helpers ────────────────────────────────────────────────────────
+
+def _is_denied(tool_name: str, config: "AgentConfig") -> bool:
+    """Return True if the tool is explicitly blocked by settings."""
+    return bool(config.settings and tool_name in config.settings.permissions.deny)
+
+
+def _get_permission(tool_name: str, config: "AgentConfig") -> str:
+    """
+    Return 'allow', 'deny', or 'ask' for a built-in tool call.
+
+    Priority:
+      deny list → auto_approve_all (CLI or settings) → auto_approve list → ask
+    Falls back to the old WRITE_TOOLS behaviour when no settings are loaded.
+    """
+    s = config.settings
+
+    if s and tool_name in s.permissions.deny:
+        return "deny"
+
+    if config.auto_approve or (s and s.permissions.auto_approve_all):
+        return "allow"
+
+    if s:
+        return "allow" if tool_name in s.permissions.auto_approve else "ask"
+
+    # Backward-compat fallback: WRITE_TOOLS ask, everything else auto
+    return "ask" if tool_name in WRITE_TOOLS else "allow"
 
 
 # ── Subagents ─────────────────────────────────────────────────────────────────
@@ -238,7 +274,7 @@ def run_agent_loop(
         model = config.model
 
     conversation.compact(max_tokens=80_000, model=model)
-    hooks = load_hooks(config.project_dir)
+    hooks = load_hooks(config.project_dir, config.settings)
 
     mcp = config.mcp_manager
     all_tools = TOOL_DEFINITIONS + (mcp.get_tool_definitions() if mcp else [])
@@ -342,14 +378,24 @@ def run_agent_loop(
                 _run_hook(pre_hook, tool_name, args)
 
             if tool_name == "spawn_subagents":
-                result = _run_subagents(args.get("tasks", []), config, silent)
+                if _is_denied(tool_name, config):
+                    result = f"Tool '{tool_name}' is blocked by settings (permissions.deny)."
+                else:
+                    result = _run_subagents(args.get("tasks", []), config, silent)
             elif mcp and mcp.is_mcp_tool(tool_name):
-                result = mcp.call_tool(tool_name, args)
-            elif tool_name in WRITE_TOOLS and not config.auto_approve:
-                approved = _ask_permission(tool_name, args)
-                result = execute_tool(tool_name, args) if approved else f"Tool '{tool_name}' denied by user."
+                if _is_denied(tool_name, config):
+                    result = f"Tool '{tool_name}' is blocked by settings (permissions.deny)."
+                else:
+                    result = mcp.call_tool(tool_name, args)
             else:
-                result = execute_tool(tool_name, args)
+                perm = _get_permission(tool_name, config)
+                if perm == "deny":
+                    result = f"Tool '{tool_name}' is blocked by settings (permissions.deny)."
+                elif perm == "ask":
+                    approved = _ask_permission(tool_name, args)
+                    result = execute_tool(tool_name, args) if approved else f"Tool '{tool_name}' denied by user."
+                else:
+                    result = execute_tool(tool_name, args)
 
             post_hook = hooks.get(f"post_{tool_name}") or hooks.get("post_tool")
             if post_hook:

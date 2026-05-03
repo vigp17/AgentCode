@@ -11,6 +11,22 @@ import glob as glob_module
 from pathlib import Path
 
 
+# ── Configurable limits (set at startup via configure_limits) ─────────────────
+
+_LIMITS: dict = {
+    "max_file_size": 1_000_000,
+    "max_output": 50_000,
+    "max_search_results": 100,
+}
+
+
+def configure_limits(limits) -> None:
+    """Apply a LimitsSettings object to tool execution. Call once at startup."""
+    _LIMITS["max_file_size"] = limits.max_file_size
+    _LIMITS["max_output"] = limits.max_output
+    _LIMITS["max_search_results"] = limits.max_search_results
+
+
 # ── Tool Definitions (OpenAI-compatible function calling schema) ──────────────
 # LiteLLM translates these to the right format for each provider.
 
@@ -361,7 +377,7 @@ def _read_file(path: str, start_line: int | None = None, end_line: int | None = 
             return f"Error: File not found: {path}"
         if not p.is_file():
             return f"Error: Not a file: {path}"
-        if p.stat().st_size > 1_000_000:
+        if p.stat().st_size > _LIMITS["max_file_size"]:
             return f"Error: File too large ({p.stat().st_size} bytes). Use start_line/end_line."
 
         lines = p.read_text(errors="replace").splitlines()
@@ -428,9 +444,9 @@ def _run_command(command: str, timeout: int = 30) -> str:
         output_parts.append(f"EXIT CODE: {result.returncode}")
 
         output = "\n".join(output_parts)
-        # Truncate very long output
-        if len(output) > 50_000:
-            output = output[:25_000] + "\n\n... [truncated] ...\n\n" + output[-25_000:]
+        if len(output) > _LIMITS["max_output"]:
+            half = _LIMITS["max_output"] // 2
+            output = output[:half] + "\n\n... [truncated] ...\n\n" + output[-half:]
         return output
     except subprocess.TimeoutExpired:
         return f"Error: Command timed out after {timeout}s"
@@ -492,7 +508,8 @@ def _search_files(pattern: str, path: str = ".") -> str:
     try:
         base = Path(path).expanduser().resolve()
         matches = sorted(glob_module.glob(str(base / pattern), recursive=True))
-        matches = [str(Path(m).relative_to(base)) for m in matches[:100]]
+        cap = _LIMITS["max_search_results"]
+        matches = [str(Path(m).relative_to(base)) for m in matches[:cap]]
         if not matches:
             return f"No files matching '{pattern}' in {path}"
         return f"Found {len(matches)} files:\n" + "\n".join(matches)
@@ -515,8 +532,9 @@ def _search_text(pattern: str, path: str = ".", include: str | None = None) -> s
         if not output:
             return f"No matches for pattern '{pattern}' in {path}"
         lines = output.strip().split("\n")
-        if len(lines) > 100:
-            return "\n".join(lines[:100]) + f"\n... and {len(lines) - 100} more matches"
+        cap = _LIMITS["max_search_results"]
+        if len(lines) > cap:
+            return "\n".join(lines[:cap]) + f"\n... and {len(lines) - cap} more matches"
         return "\n".join(lines)
     except subprocess.TimeoutExpired:
         return "Error: Search timed out"
@@ -551,8 +569,8 @@ def _git_diff(staged: bool = False) -> str:
         if not r.stdout:
             return "No staged changes." if staged else "No unstaged changes."
         output = r.stdout
-        if len(output) > 50_000:
-            output = output[:50_000] + "\n... [truncated]"
+        if len(output) > _LIMITS["max_output"]:
+            output = output[:_LIMITS["max_output"]] + "\n... [truncated]"
         return output
     except Exception as e:
         return f"Error: {e}"

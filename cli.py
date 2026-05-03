@@ -32,6 +32,10 @@ from agent import (
 )
 from router import ModelRouter
 from mcp_client import create_mcp_manager
+from settings import (
+    load_settings, generate_starter_settings, settings_sources, SETTINGS_HELP,
+)
+from tools import configure_limits
 
 # ── Theme ─────────────────────────────────────────────────────────────────────
 
@@ -80,6 +84,12 @@ def show_banner(config: AgentConfig, project_config: dict | None = None):
         if not project_config.get("project_path") and not project_config.get("global_path"):
             console.print("  [dim]Config:[/dim] [dim]no AGENTCODE.md found (optional)[/dim]")
 
+    sources = settings_sources(config.project_dir)
+    if sources["project"]:
+        console.print(f"  [dim]Settings:[/dim][bold green] ✓ {sources['project']}[/bold green]")
+    elif sources["global"]:
+        console.print(f"  [dim]Settings:[/dim][bold green] ✓ {sources['global']} (global)[/bold green]")
+
     console.print()
     console.print("  [dim]Type your request, or:[/dim]")
     console.print("  [dim]  /model <name>  — switch model (disables routing)[/dim]")
@@ -89,6 +99,7 @@ def show_banner(config: AgentConfig, project_config: dict | None = None):
     console.print("  [dim]  /clear         — reset conversation[/dim]")
     console.print("  [dim]  /compact       — force context compaction[/dim]")
     console.print("  [dim]  /init          — create AGENTCODE.md template[/dim]")
+    console.print("  [dim]  /settings      — show resolved settings[/dim]")
     console.print("  [dim]  /tokens        — show token usage[/dim]")
     console.print("  [dim]  /help          — show this help[/dim]")
     console.print("  [dim]  /exit          — quit[/dim]")
@@ -194,7 +205,61 @@ def handle_slash_command(
         handle_mcp_command(arg.strip(), config)
         return True
 
+    elif command == "/settings":
+        _show_settings(config)
+        return True
+
     return False
+
+
+# ── /settings display ────────────────────────────────────────────────────────
+
+def _show_settings(config: AgentConfig) -> None:
+    """Print the resolved settings and which files were loaded."""
+    sources = settings_sources(config.project_dir)
+    active = [v for v in sources.values() if v]
+    if active:
+        for path in active:
+            console.print(f"  [dim]Loaded:[/dim] {path}")
+    else:
+        console.print("  [dim]No settings.json found — showing built-in defaults[/dim]")
+        console.print(f"  [dim]Run with --init-settings to create one.[/dim]")
+
+    s = config.settings
+    if s is None:
+        return
+
+    console.print()
+    perms = s.permissions
+    auto_all = "[bold green]true[/bold green]" if perms.auto_approve_all else "[dim]false[/dim]"
+    console.print(f"  [bold]permissions.auto_approve_all[/bold]  {auto_all}")
+    console.print(f"  [bold]permissions.auto_approve[/bold]")
+    for name in perms.auto_approve:
+        console.print(f"    [dim]·[/dim] {name}")
+    deny_str = ", ".join(perms.deny) if perms.deny else "[dim](none)[/dim]"
+    console.print(f"  [bold]permissions.deny[/bold]              {deny_str}")
+
+    console.print()
+    m = s.model
+    console.print(f"  [bold]model.default[/bold]    {m.default}")
+    routing_str = "[bold green]true[/bold green]" if m.routing else "[dim]false[/dim]"
+    console.print(f"  [bold]model.routing[/bold]    {routing_str}")
+    for tier, val in [("light", m.light), ("medium", m.medium), ("heavy", m.heavy)]:
+        if val:
+            console.print(f"  [bold]model.{tier}[/bold]     {val}")
+
+    console.print()
+    lim = s.limits
+    console.print(f"  [bold]limits.max_file_size[/bold]       {lim.max_file_size:,} bytes")
+    console.print(f"  [bold]limits.max_output[/bold]          {lim.max_output:,} chars")
+    console.print(f"  [bold]limits.max_search_results[/bold]  {lim.max_search_results}")
+    console.print(f"  [bold]limits.max_iterations[/bold]      {lim.max_iterations}")
+
+    if s.hooks:
+        console.print()
+        console.print("  [bold]hooks:[/bold]")
+        for k, v in s.hooks.items():
+            console.print(f"    [dim]{k}:[/dim] {v}")
 
 
 # ── MCP command ───────────────────────────────────────────────────────────────
@@ -463,8 +528,8 @@ def main():
     )
     parser.add_argument(
         "--model", "-m",
-        default=os.environ.get("AGENTCODE_MODEL", "claude-sonnet-4-6"),
-        help="LLM model to use (default: claude-sonnet-4-6)",
+        default=None,
+        help="LLM model to use (overrides settings.model.default)",
     )
     parser.add_argument(
         "--no-route",
@@ -481,26 +546,75 @@ def main():
         default=os.getcwd(),
         help="Project directory to operate in (default: current dir)",
     )
+    parser.add_argument(
+        "--init-settings",
+        action="store_true",
+        help="Create a starter .agentcode/settings.json and exit",
+    )
 
     args = parser.parse_args()
 
-    # Build router (enabled by default, disabled with --no-route)
-    temp_router = ModelRouter(default_model=args.model)
-    provider = temp_router.detect_provider(args.model)
-    router = ModelRouter(
-        provider=provider,
-        default_model=args.model,
-        enabled=not args.no_route,
-    )
-
     project_dir = os.path.abspath(args.dir)
     os.chdir(project_dir)
+
+    # Handle --init-settings before anything else
+    if args.init_settings:
+        path, created = generate_starter_settings(project_dir)
+        if created:
+            console.print(f"[success]✓ Created {path}[/success]")
+            console.print()
+            console.print("[dim]Settings reference:[/dim]")
+            for line in SETTINGS_HELP.strip().splitlines():
+                console.print(f"  [dim]{line}[/dim]")
+        else:
+            console.print(f"[warning]⚠  Settings already exist at {path}[/warning]")
+            console.print("[dim]  Edit it directly or delete it and re-run --init-settings.[/dim]")
+        return
+
+    # Build CLI overrides dict so they take highest priority in merge
+    cli_overrides: dict = {}
+    if args.auto_approve:
+        cli_overrides.setdefault("permissions", {})["auto_approve_all"] = True
+    if args.no_route:
+        cli_overrides.setdefault("model", {})["routing"] = False
+
+    settings = load_settings(project_dir, cli_overrides or None)
+
+    # Apply configurable limits to tools module
+    configure_limits(settings.limits)
+
+    # Resolve model: CLI flag > env var > settings.model.default
+    model = (
+        args.model
+        or os.environ.get("AGENTCODE_MODEL")
+        or settings.model.default
+    )
+
+    # Resolve routing
+    routing_enabled = settings.model.routing  # already patched by cli_overrides if --no-route
+
+    # Build router
+    temp_router = ModelRouter(default_model=model)
+    provider = temp_router.detect_provider(model)
+    router = ModelRouter(
+        provider=provider,
+        default_model=model,
+        enabled=routing_enabled,
+    )
+
+    # Resolve max_iterations: env var takes precedence for backward compat
+    max_iterations = int(
+        os.environ.get("AGENTCODE_MAX_ITERATIONS", settings.limits.max_iterations)
+    )
+
     config = AgentConfig(
-        model=args.model,
-        auto_approve=args.auto_approve,
+        model=model,
+        auto_approve=settings.permissions.auto_approve_all,
         project_dir=project_dir,
+        max_iterations=max_iterations,
         router=router,
         mcp_manager=create_mcp_manager(project_dir),
+        settings=settings,
     )
 
     if args.prompt:
