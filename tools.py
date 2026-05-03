@@ -324,6 +324,30 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "spawn_subagents",
+            "description": (
+                "Spawn multiple independent agents to work on subtasks in parallel. "
+                "Use when a task can be split into independent parts that don't depend on each other — "
+                "e.g. analyze multiple files simultaneously, run parallel searches, or investigate "
+                "different parts of the codebase at once. Each subagent gets its own context and "
+                "runs the full agentic loop. Results are returned combined."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tasks": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of independent subtask prompts to run in parallel. Keep each task self-contained.",
+                    },
+                },
+                "required": ["tasks"],
+            },
+        },
+    },
 ]
 
 
