@@ -3,9 +3,7 @@ AgentCode - Cost-aware model router.
 
 Automatically picks the cheapest model that can handle the task.
 Simple questions get a fast, cheap model. Complex multi-file refactors
-get a powerful, expensive one. Saves money without sacrificing quality.
-
-This is AgentCode's killer feature — no other CLI tool does this.
+get a powerful, expensive one.
 """
 
 import re
