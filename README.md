@@ -70,7 +70,6 @@ Via [LiteLLM](https://docs.litellm.ai/docs/providers), AgentCode supports 100+ m
 | Anthropic  | `claude-sonnet-4-6` (default)   | `ANTHROPIC_API_KEY`     |
 | OpenAI     | `gpt-4o`                        | `OPENAI_API_KEY`        |
 | Google     | `gemini/gemini-2.5-pro`         | `GEMINI_API_KEY`        |
-| Groq       | `groq/llama-3.3-70b-versatile`  | `GROQ_API_KEY`          |
 
 ## Cost-Aware Routing
 
