@@ -63,7 +63,7 @@ python cli.py --model gpt-4o            # Use a different model
 
 ## Supported Models
 
-Via [LiteLLM](https://docs.litellm.ai/docs/providers), AgentCode supports 100+ models:
+Via [LiteLLM](https://docs.litellm.ai/docs/providers), AgentCode works with any model that supports function calling — including Claude, GPT, Gemini, and select open-source models via Ollama.
 
 | Provider   | Model String                    | API Key Env Var         |
 |------------|---------------------------------|-------------------------|
