@@ -85,6 +85,7 @@ def show_banner(config: AgentConfig, project_config: dict | None = None):
     console.print("  [dim]  /model <name>  — switch model (disables routing)[/dim]")
     console.print("  [dim]  /route         — show/toggle routing[/dim]")
     console.print("  [dim]  /cost          — show session cost breakdown[/dim]")
+    console.print("  [dim]  /mcp           — manage MCP server connections[/dim]")
     console.print("  [dim]  /clear         — reset conversation[/dim]")
     console.print("  [dim]  /compact       — force context compaction[/dim]")
     console.print("  [dim]  /init          — create AGENTCODE.md template[/dim]")
@@ -189,7 +190,146 @@ def handle_slash_command(
         console.print(f"[info]Estimated tokens in context: ~{est:,}[/info]")
         return True
 
+    elif command == "/mcp":
+        handle_mcp_command(arg.strip(), config)
+        return True
+
     return False
+
+
+# ── MCP command ───────────────────────────────────────────────────────────────
+
+MCP_PRESETS = {
+    "github": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "env_prompts": {"GITHUB_TOKEN": "GitHub personal access token (github.com/settings/tokens)"},
+    },
+    "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+        "env_prompts": {},
+    },
+    "postgres": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-postgres"],
+        "env_prompts": {"POSTGRES_CONNECTION_STRING": "Postgres connection string (postgresql://user:pass@host/db)"},
+    },
+    "sqlite": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-sqlite"],
+        "env_prompts": {"SQLITE_DB_PATH": "Path to SQLite database file"},
+    },
+}
+
+
+def _load_mcp_config_file(project_dir: str) -> dict:
+    from pathlib import Path
+    path = Path(project_dir) / ".agentcode" / "mcp.json"
+    if path.exists():
+        try:
+            import json
+            return json.loads(path.read_text())
+        except Exception:
+            pass
+    return {"mcpServers": {}}
+
+
+def _save_mcp_config_file(project_dir: str, data: dict) -> None:
+    from pathlib import Path
+    import json
+    path = Path(project_dir) / ".agentcode" / "mcp.json"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps(data, indent=2))
+
+
+def handle_mcp_command(arg: str, config: AgentConfig) -> None:
+    parts = arg.split(maxsplit=1)
+    sub = parts[0].lower() if parts else ""
+    name = parts[1].strip() if len(parts) > 1 else ""
+
+    if sub == "list":
+        if config.mcp_manager and config.mcp_manager.server_names():
+            for server in config.mcp_manager.server_names():
+                tool_count = len([k for k in config.mcp_manager._tool_map if k.startswith(f"mcp__{server}__")])
+                console.print(f"  [bold green]✓[/bold green] [bold]{server}[/bold] ({tool_count} tools)")
+        else:
+            console.print("[dim]No MCP servers connected. Use /mcp add <server> to connect one.[/dim]")
+            console.print(f"[dim]Available presets: {', '.join(MCP_PRESETS.keys())}[/dim]")
+
+    elif sub == "add":
+        if not name:
+            console.print(f"[warning]Usage: /mcp add <server>[/warning]")
+            console.print(f"[dim]Available presets: {', '.join(MCP_PRESETS.keys())}[/dim]")
+            return
+
+        if name not in MCP_PRESETS:
+            console.print(f"[warning]Unknown preset '{name}'. Available: {', '.join(MCP_PRESETS.keys())}[/warning]")
+            return
+
+        preset = MCP_PRESETS[name]
+        server_config = {"command": preset["command"], "args": preset["args"].copy()}
+
+        # Prompt for required env vars
+        if preset["env_prompts"]:
+            server_config["env"] = {}
+            for var, prompt in preset["env_prompts"].items():
+                try:
+                    value = console.input(f"  [bold]{prompt}:[/bold] ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    console.print("\n[warning]Cancelled.[/warning]")
+                    return
+                if not value:
+                    console.print("[warning]Cancelled — value required.[/warning]")
+                    return
+                server_config["env"][var] = value
+
+        # Save to config file
+        data = _load_mcp_config_file(config.project_dir)
+        data["mcpServers"][name] = server_config
+        _save_mcp_config_file(config.project_dir, data)
+
+        # Hot-connect without restart
+        from mcp_client import MCPManager
+        if config.mcp_manager is None:
+            config.mcp_manager = MCPManager()
+        try:
+            config.mcp_manager.connect(name, server_config)
+            tool_count = len([k for k in config.mcp_manager._tool_map if k.startswith(f"mcp__{name}__")])
+            console.print(f"[success]✓ Connected to {name} ({tool_count} tools available)[/success]")
+        except Exception as e:
+            console.print(f"[error]Failed to connect to {name}: {e}[/error]")
+            # Roll back config
+            data["mcpServers"].pop(name, None)
+            _save_mcp_config_file(config.project_dir, data)
+
+    elif sub == "remove":
+        if not name:
+            console.print("[warning]Usage: /mcp remove <server>[/warning]")
+            return
+
+        data = _load_mcp_config_file(config.project_dir)
+        if name not in data.get("mcpServers", {}):
+            console.print(f"[warning]Server '{name}' not found in config.[/warning]")
+            return
+
+        data["mcpServers"].pop(name)
+        _save_mcp_config_file(config.project_dir, data)
+
+        # Remove from running manager
+        if config.mcp_manager:
+            keys_to_remove = [k for k in config.mcp_manager._tool_map if k.startswith(f"mcp__{name}__")]
+            for k in keys_to_remove:
+                config.mcp_manager._tool_map.pop(k)
+            config.mcp_manager._servers.pop(name, None)
+
+        console.print(f"[success]✓ Removed {name}[/success]")
+
+    else:
+        console.print("  [bold]/mcp list[/bold]             — show connected servers")
+        console.print("  [bold]/mcp add <server>[/bold]     — connect a server")
+        console.print("  [bold]/mcp remove <server>[/bold]  — disconnect a server")
+        console.print(f"  [dim]Available presets: {', '.join(MCP_PRESETS.keys())}[/dim]")
 
 
 # ── AGENTCODE.md Template ─────────────────────────────────────────────────────

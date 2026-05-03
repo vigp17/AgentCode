@@ -119,17 +119,21 @@ Simple questions go to cheap/fast models. Complex multi-file tasks go to powerfu
 
 ## Slash Commands
 
-| Command           | Description                                      |
-|-------------------|--------------------------------------------------|
-| `/model <name>`   | Switch LLM model on the fly (disables routing)   |
-| `/route`          | Show or toggle cost-aware routing                |
-| `/cost`           | Show session cost breakdown                      |
-| `/clear`          | Reset conversation and delete saved session      |
-| `/compact`        | Force LLM-powered context compaction             |
-| `/tokens`         | Show estimated token usage                       |
-| `/init`           | Create an AGENTCODE.md template                  |
-| `/help`           | Show help                                        |
-| `/exit`           | Quit                                             |
+| Command                  | Description                                      |
+|--------------------------|--------------------------------------------------|
+| `/model <name>`          | Switch LLM model on the fly (disables routing)   |
+| `/route`                 | Show or toggle cost-aware routing                |
+| `/cost`                  | Show session cost breakdown                      |
+| `/mcp`                   | Manage MCP server connections                    |
+| `/mcp list`              | Show connected servers and tool counts           |
+| `/mcp add <server>`      | Connect a server (prompts for credentials)       |
+| `/mcp remove <server>`   | Disconnect a server                              |
+| `/clear`                 | Reset conversation and delete saved session      |
+| `/compact`               | Force LLM-powered context compaction             |
+| `/tokens`                | Show estimated token usage                       |
+| `/init`                  | Create an AGENTCODE.md template                  |
+| `/help`                  | Show help                                        |
+| `/exit`                  | Quit                                             |
 
 ## Session Persistence
 
@@ -151,21 +155,36 @@ Supported keys: `pre_<toolname>`, `post_<toolname>`, `pre_tool` / `post_tool` (w
 
 ## MCP Support
 
-Connect to any [MCP server](https://modelcontextprotocol.io) by creating `.agentcode/mcp.json`:
+Connect to any [MCP server](https://modelcontextprotocol.io) using the `/mcp add` command — no manual config editing needed:
+
+```
+/mcp add github       # prompts for GitHub token, connects immediately
+/mcp add filesystem   # connects to current directory, no credentials needed
+/mcp add postgres     # prompts for connection string
+/mcp add sqlite       # prompts for database file path
+/mcp list             # show connected servers and tool counts
+/mcp remove github    # disconnect a server
+```
+
+Servers connect live without restarting. Config is saved to `.agentcode/mcp.json` and reloaded automatically on next launch.
+
+MCP tools are exposed as `mcp__<server>__<toolname>` (e.g. `mcp__github__create_issue`) and available to the LLM alongside built-in tools. Connected servers are shown in the banner on startup.
+
+**Advanced:** You can also edit `.agentcode/mcp.json` directly for custom servers:
 
 ```json
 {
   "mcpServers": {
-    "github": {
+    "my-server": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": {"GITHUB_TOKEN": "ghp_..."}
+      "args": ["-y", "@myorg/mcp-server"],
+      "env": {"API_KEY": "..."}
     }
   }
 }
 ```
 
-MCP tools are exposed as `mcp__<server>__<toolname>` and shown in the banner on startup. Global config goes in `~/.agentcode/mcp.json`.
+Global config goes in `~/.agentcode/mcp.json`.
 
 ## Subagents
 
