@@ -46,7 +46,7 @@ An open, multi-model agentic coding CLI — inspired by Claude Code.
 
 ```bash
 # Option A: Install from PyPI
-pip install agentcode
+pip install agentcode-cli
 
 # Option B: Install from source
 git clone https://github.com/vigp17/AgentCode.git
