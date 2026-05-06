@@ -9,6 +9,7 @@ export class AgentProcess {
   private process: ChildProcess | null = null;
   private handlers: MessageHandler[] = [];
   private ready = false;
+  private disposing = false;
 
   onMessage(handler: MessageHandler): void {
     this.handlers.push(handler);
@@ -18,10 +19,10 @@ export class AgentProcess {
     this.handlers.forEach((h) => h(msg));
   }
 
-  start(workspaceDir: string): void {
+  start(workspaceDir: string, modelOverride?: string): void {
     const cfg = vscode.workspace.getConfiguration("agentcode");
     const execPath = cfg.get<string>("executablePath", "agentcode");
-    const model = cfg.get<string>("model", "claude-sonnet-4-6");
+    const model = modelOverride ?? cfg.get<string>("model", "claude-sonnet-4-6");
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,
@@ -57,9 +58,10 @@ export class AgentProcess {
 
     this.process.on("exit", (code) => {
       this.ready = false;
-      if (code !== 0) {
+      if (!this.disposing && code !== 0) {
         this.emit({ type: "error", message: `AgentCode process exited (code ${code}). Check your API keys and Python path.` });
       }
+      this.disposing = false;
     });
   }
 
@@ -89,6 +91,7 @@ export class AgentProcess {
   }
 
   dispose(): void {
+    this.disposing = true;
     this.process?.kill();
     this.process = null;
     this.ready = false;

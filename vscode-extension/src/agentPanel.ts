@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import * as path from "path";
 import { AgentProcess } from "./agentProcess.js";
 import { ContextProvider } from "./contextProvider.js";
 import { showEditDiff, promptFallback } from "./diffManager.js";
@@ -74,6 +73,11 @@ export class AgentPanel implements vscode.Disposable {
       this.agent.sendClear();
     } else if (msg.type === "permission_response") {
       this.agent.sendPermissionResponse(msg.approved);
+    } else if (msg.type === "set_model") {
+      const workspaceDir =
+        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+      this.agent.dispose();
+      this.agent.start(workspaceDir, msg.model);
     }
   }
 
@@ -120,7 +124,28 @@ export class AgentPanel implements vscode.Disposable {
 </head>
 <body>
   <div id="header">
-    <span id="model-label"></span>
+    <div id="model-picker">
+      <span id="model-label">▾ claude-sonnet-4-6</span>
+      <div id="model-dropdown">
+        <div class="model-group">
+          <div class="model-group-label">Claude</div>
+          <div class="model-option" data-model="claude-sonnet-4-6">Sonnet 4.6</div>
+          <div class="model-option" data-model="claude-opus-4-7">Opus 4.7</div>
+          <div class="model-option" data-model="claude-haiku-4-5-20251001">Haiku 4.5</div>
+        </div>
+        <div class="model-group">
+          <div class="model-group-label">GPT</div>
+          <div class="model-option" data-model="gpt-5.5">GPT-5.5</div>
+          <div class="model-option" data-model="gpt-4o">GPT-4o</div>
+          <div class="model-option" data-model="gpt-4o-mini">GPT-4o Mini</div>
+        </div>
+        <div class="model-group">
+          <div class="model-group-label">Gemini</div>
+          <div class="model-option" data-model="gemini/gemini-2.5-pro">Gemini 2.5 Pro</div>
+          <div class="model-option" data-model="gemini/gemini-2.5-flash">Gemini 2.5 Flash</div>
+        </div>
+      </div>
+    </div>
     <button id="clear-btn" title="Clear conversation">↺</button>
   </div>
   <div id="messages"></div>

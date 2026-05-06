@@ -1,4 +1,4 @@
-// @ts-check
+// webview script — no ts-check (acquireVsCodeApi is injected at runtime)
 const vscode = acquireVsCodeApi();
 
 const messagesEl = document.getElementById("messages");
@@ -6,6 +6,7 @@ const inputEl = /** @type {HTMLTextAreaElement} */ (document.getElementById("inp
 const sendBtn = document.getElementById("send-btn");
 const clearBtn = document.getElementById("clear-btn");
 const modelLabel = document.getElementById("model-label");
+const modelDropdown = document.getElementById("model-dropdown");
 
 let currentAssistantEl = null;
 let currentToolsEl = null;
@@ -41,6 +42,29 @@ clearBtn?.addEventListener("click", () => {
   currentToolsEl = null;
   setBusy(false);
   vscode.postMessage({ type: "clear" });
+});
+
+// ── Model picker ─────────────────────────────────────────────────────────────
+
+modelLabel?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  modelDropdown?.classList.toggle("open");
+});
+
+document.addEventListener("click", () => {
+  modelDropdown?.classList.remove("open");
+});
+
+document.querySelectorAll(".model-option").forEach((el) => {
+  el.addEventListener("click", () => {
+    const model = el.getAttribute("data-model");
+    if (!model) return;
+    document.querySelectorAll(".model-option").forEach((o) => o.classList.remove("active"));
+    el.classList.add("active");
+    if (modelLabel) modelLabel.textContent = "▾ " + model;
+    modelDropdown?.classList.remove("open");
+    vscode.postMessage({ type: "set_model", model });
+  });
 });
 
 // ── Message rendering ────────────────────────────────────────────────────────
@@ -113,7 +137,10 @@ window.addEventListener("message", (event) => {
 
   switch (msg.type) {
     case "ready":
-      if (modelLabel) modelLabel.textContent = msg.model;
+      if (modelLabel) modelLabel.textContent = "▾ " + msg.model;
+      document.querySelectorAll(".model-option").forEach((el) => {
+        el.classList.toggle("active", el.getAttribute("data-model") === msg.model);
+      });
       break;
 
     case "text":

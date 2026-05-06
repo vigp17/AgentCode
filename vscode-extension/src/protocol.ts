@@ -33,4 +33,5 @@ export type WebviewInMessage =
 export type WebviewOutMessage =
   | { type: "send"; content: string }
   | { type: "permission_response"; approved: boolean }
-  | { type: "clear" };
+  | { type: "clear" }
+  | { type: "set_model"; model: string };
