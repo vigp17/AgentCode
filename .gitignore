@@ -8,3 +8,5 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+vscode-extension/out/
+vscode-extension/node_modules/

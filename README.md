@@ -1,6 +1,6 @@
 # AgentCode
 
-An open, multi-model agentic coding CLI — inspired by Claude Code.
+An open, multi-model agentic coding CLI and VS Code extension — inspired by Claude Code.
 
 ## Architecture
 
@@ -41,6 +41,32 @@ An open, multi-model agentic coding CLI — inspired by Claude Code.
 │  spawn_subagents    │
 └─────────────────────┘
 ```
+
+## VS Code Extension
+
+Install the extension from the VS Code Marketplace (search **AgentCode**) and add your API keys once in VS Code Settings (`Cmd+,` → search "AgentCode"):
+
+| Setting | Description |
+|---------|-------------|
+| `agentcode.anthropicApiKey` | Anthropic API key |
+| `agentcode.openaiApiKey` | OpenAI API key |
+| `agentcode.geminiApiKey` | Google Gemini API key |
+| `agentcode.model` | Default model (e.g. `claude-sonnet-4-6`) |
+| `agentcode.executablePath` | Path to `agentcode` if not on PATH |
+
+**Commands:**
+
+| Command | Shortcut | Description |
+|---------|----------|-------------|
+| `AgentCode: Open` | `Cmd+Shift+A` | Open the chat panel |
+| `AgentCode: Ask about selection` | Right-click | Ask about highlighted code |
+| `AgentCode: Explain this file` | Right-click | Explain the current file |
+
+**Features:**
+- Streams responses live in a side panel
+- Automatically sends your active file as context — no need to paste code
+- Write tool calls (e.g. `edit_file`) open VS Code's native **diff viewer** so you can review changes before they're applied
+- API keys are read from VS Code settings — no `.env` file needed
 
 ## Quick Start
 

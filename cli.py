@@ -551,6 +551,11 @@ def main():
         action="store_true",
         help="Create a starter .agentcode/settings.json and exit",
     )
+    parser.add_argument(
+        "--server",
+        action="store_true",
+        help="Run in server mode (JSON stdio protocol for VS Code extension)",
+    )
 
     args = parser.parse_args()
 
@@ -617,7 +622,10 @@ def main():
         settings=settings,
     )
 
-    if args.prompt:
+    if args.server:
+        from server import run_server
+        run_server(config)
+    elif args.prompt:
         one_shot(args.prompt, config)
     else:
         repl(config)

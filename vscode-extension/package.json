@@ -1,0 +1,87 @@
+{
+  "name": "agentcode",
+  "displayName": "AgentCode",
+  "description": "AI coding assistant — multi-model, cost-aware, open source",
+  "version": "1.0.0",
+  "publisher": "agentcode",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["AI", "Chat", "Other"],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "agentcode.open",
+        "title": "AgentCode: Open"
+      },
+      {
+        "command": "agentcode.askAboutSelection",
+        "title": "AgentCode: Ask about selection"
+      },
+      {
+        "command": "agentcode.explainFile",
+        "title": "AgentCode: Explain this file"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "agentcode.askAboutSelection",
+          "when": "editorHasSelection",
+          "group": "agentcode@1"
+        },
+        {
+          "command": "agentcode.explainFile",
+          "group": "agentcode@2"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "agentcode.open",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
+      }
+    ],
+    "configuration": {
+      "title": "AgentCode",
+      "properties": {
+        "agentcode.anthropicApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Anthropic API key (sk-ant-...)"
+        },
+        "agentcode.openaiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI API key (sk-...)"
+        },
+        "agentcode.geminiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Google Gemini API key"
+        },
+        "agentcode.model": {
+          "type": "string",
+          "default": "claude-sonnet-4-6",
+          "description": "Default LLM model (e.g. claude-sonnet-4-6, gpt-4o, gemini/gemini-2.5-pro)"
+        },
+        "agentcode.executablePath": {
+          "type": "string",
+          "default": "agentcode",
+          "description": "Path to the agentcode executable (default: agentcode from PATH)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.0.0"
+  }
+}
