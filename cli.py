@@ -18,6 +18,7 @@ Supported models (via LiteLLM):
 import os
 import sys
 import argparse
+from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()

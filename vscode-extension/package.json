@@ -9,6 +9,7 @@
     "url": "https://github.com/vigp17/AgentCode"
   },
   "engines": { "vscode": "^1.85.0" },
+  "icon": "media/icon.png",
   "categories": ["AI", "Chat", "Other"],
   "activationEvents": [],
   "main": "./out/extension.js",
