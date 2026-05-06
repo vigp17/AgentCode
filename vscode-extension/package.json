@@ -4,6 +4,10 @@
   "description": "AI coding assistant — multi-model, cost-aware, open source",
   "version": "1.0.0",
   "publisher": "agentcode",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vigp17/AgentCode"
+  },
   "engines": { "vscode": "^1.85.0" },
   "categories": ["AI", "Chat", "Other"],
   "activationEvents": [],
