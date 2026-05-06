@@ -3,7 +3,7 @@
   "displayName": "AgentCode",
   "description": "AI coding assistant — multi-model, cost-aware, open source",
   "version": "1.0.0",
-  "publisher": "agentcode",
+  "publisher": "VigPai",
   "repository": {
     "type": "git",
     "url": "https://github.com/vigp17/AgentCode"
