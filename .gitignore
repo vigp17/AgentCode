@@ -11,3 +11,6 @@ build/
 vscode-extension/out/
 vscode-extension/node_modules/
 vscode-extension/*.vsix
+vscode-extension/test.py
+.claude/
+.vscode/
