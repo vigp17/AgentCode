@@ -26,6 +26,10 @@
       {
         "command": "agentcode.explainFile",
         "title": "AgentCode: Explain this file"
+      },
+      {
+        "command": "agentcode.toggleInlineCompletions",
+        "title": "AgentCode: Toggle inline completions"
       }
     ],
     "menus": {
@@ -75,6 +79,11 @@
           "type": "string",
           "default": "agentcode",
           "description": "Path to the agentcode executable (default: agentcode from PATH)"
+        },
+        "agentcode.inlineCompletions.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable inline code completions powered by Claude Haiku (requires Anthropic API key)"
         }
       }
     }
