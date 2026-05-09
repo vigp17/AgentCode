@@ -3,3 +3,5 @@ tsconfig.json
 node_modules/
 .vscode/
 *.map
+*.py
+*.vsix
