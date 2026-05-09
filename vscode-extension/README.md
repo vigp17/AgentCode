@@ -21,6 +21,7 @@ Add your API keys in VS Code Settings (`Cmd+,` → search **AgentCode**):
 | `agentcode.geminiApiKey` | Google Gemini API key |
 | `agentcode.model` | Default model (e.g. `claude-sonnet-4-6`) |
 | `agentcode.executablePath` | Path to `agentcode` if not on PATH |
+| `agentcode.inlineCompletions.enabled` | Enable/disable inline completions (default: `true`) |
 
 ## Commands
 
@@ -29,9 +30,11 @@ Add your API keys in VS Code Settings (`Cmd+,` → search **AgentCode**):
 | `AgentCode: Open` | `Cmd+Shift+A` | Open the chat panel |
 | `AgentCode: Ask about selection` | Right-click | Ask about highlighted code |
 | `AgentCode: Explain this file` | Right-click | Explain the current file |
+| `AgentCode: Toggle inline completions` | Command Palette | Enable or disable inline completions |
 
 ## Features
 
+- **Inline completions** — AI-powered ghost-text suggestions as you type, powered by Claude Haiku. Press `Tab` to accept. Toggle on/off via `AgentCode: Toggle inline completions` in the Command Palette
 - **Multi-model** — works with Claude, GPT, and Gemini via a single interface
 - **Cost-aware routing** — automatically picks the cheapest model that can handle the task
 - **Live streaming** — responses stream in real time in the side panel
