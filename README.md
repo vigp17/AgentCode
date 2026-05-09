@@ -42,8 +42,8 @@ pip install agentcode-cli
 ```
 
 **Step 2 — Install the extension:**
-- Download `agentcode-1.0.0.vsix` from the [GitHub releases page](https://github.com/vigp17/AgentCode/releases)
-- In VS Code: `Cmd+Shift+X` → `...` → **Install from VSIX...**
+- Search **AgentCode** in the VS Code Marketplace and install, or
+- Download `agentcode-1.1.1.vsix` from the [GitHub releases page](https://github.com/vigp17/AgentCode/releases) and install via `Cmd+Shift+X` → `...` → **Install from VSIX...**
 
 **Step 3 — Add your API key:**
 `Cmd+,` → search **AgentCode** → paste your key into `agentcode.anthropicApiKey`
@@ -60,6 +60,7 @@ Press `Cmd+Shift+A`
 | `agentcode.geminiApiKey` | Google Gemini API key |
 | `agentcode.model` | Default model (e.g. `claude-sonnet-4-6`) |
 | `agentcode.executablePath` | Path to `agentcode` if not on PATH |
+| `agentcode.inlineCompletions.enabled` | Enable/disable inline completions (default: `true`) |
 
 #### Extension commands
 
@@ -68,9 +69,11 @@ Press `Cmd+Shift+A`
 | `AgentCode: Open` | `Cmd+Shift+A` | Open the chat panel |
 | `AgentCode: Ask about selection` | Right-click | Ask about highlighted code |
 | `AgentCode: Explain this file` | Right-click | Explain the current file |
+| `AgentCode: Toggle inline completions` | Command Palette | Enable or disable inline completions |
 
 #### Extension features
 
+- **Inline completions** — AI-powered ghost-text suggestions as you type, powered by Claude Haiku. Press `Tab` to accept
 - **Live streaming** — responses stream in real time
 - **Model picker** — switch between Claude, GPT, and Gemini models from the dropdown in the header
 - **Active file context** — your current file is sent automatically, no copy-pasting needed
