@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as https from "https";
+import { loadWorkspaceEnv, resolveKey } from "./envLoader.js";
 
 interface CacheEntry {
   completion: string;
@@ -26,7 +27,7 @@ export class InlineCompletionProvider
       return undefined;
     }
 
-    const apiKey = config.get<string>("anthropicApiKey", "");
+    const apiKey = resolveKey("anthropicApiKey", "ANTHROPIC_API_KEY", loadWorkspaceEnv());
     if (!apiKey) return undefined;
 
     const text = document.getText();

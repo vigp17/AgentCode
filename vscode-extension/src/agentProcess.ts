@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from "child_process";
 import * as readline from "readline";
 import * as vscode from "vscode";
 import { ServerMessage, ClientMessage } from "./protocol.js";
+import { loadWorkspaceEnv, resolveKey } from "./envLoader.js";
 
 export type MessageHandler = (msg: ServerMessage) => void;
 
@@ -24,12 +25,20 @@ export class AgentProcess {
     const execPath = cfg.get<string>("executablePath", "agentcode");
     const model = modelOverride ?? cfg.get<string>("model", "claude-sonnet-4-6");
 
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      ANTHROPIC_API_KEY: cfg.get<string>("anthropicApiKey", "") || process.env.ANTHROPIC_API_KEY || "",
-      OPENAI_API_KEY: cfg.get<string>("openaiApiKey", "") || process.env.OPENAI_API_KEY || "",
-      GEMINI_API_KEY: cfg.get<string>("geminiApiKey", "") || process.env.GEMINI_API_KEY || "",
-    };
+    const dotenvVars = loadWorkspaceEnv();
+    // Only inject keys that are actually resolved — passing an empty string would
+    // overwrite the env var and prevent Python's own load_dotenv() from reading .env.
+    const resolved: Record<string, string> = {};
+    for (const [setting, envVar] of [
+      ["anthropicApiKey", "ANTHROPIC_API_KEY"],
+      ["azureApiKey",     "AZURE_API_KEY"],
+      ["openaiApiKey",    "OPENAI_API_KEY"],
+      ["geminiApiKey",    "GEMINI_API_KEY"],
+    ] as const) {
+      const val = resolveKey(setting, envVar, dotenvVars);
+      if (val) resolved[envVar] = val;
+    }
+    const env: NodeJS.ProcessEnv = { ...process.env, ...resolved };
 
     this.process = spawn(
       execPath,
@@ -49,6 +58,13 @@ export class AgentProcess {
       }
     });
 
+    this.process.on("error", (err: NodeJS.ErrnoException) => {
+      const hint = err.code === "ENOENT"
+        ? `'${execPath}' not found. Set the correct path in AgentCode settings (agentcode.executablePath).`
+        : err.message;
+      this.emit({ type: "error", message: hint });
+    });
+
     this.process.stderr?.on("data", (data: Buffer) => {
       const text = data.toString().trim();
       if (text) {
@@ -58,7 +74,7 @@ export class AgentProcess {
 
     this.process.on("exit", (code) => {
       this.ready = false;
-      if (!this.disposing && code !== 0) {
+      if (!this.disposing && code !== 0 && code !== null) {
         this.emit({ type: "error", message: `AgentCode process exited (code ${code}). Check your API keys and Python path.` });
       }
       this.disposing = false;
@@ -66,7 +82,10 @@ export class AgentProcess {
   }
 
   send(msg: ClientMessage): void {
-    if (!this.process?.stdin?.writable) return;
+    if (!this.process?.stdin?.writable) {
+      this.emit({ type: "error", message: "AgentCode process is not running. Check your executable path and API keys." });
+      return;
+    }
     this.process.stdin.write(JSON.stringify(msg) + "\n");
   }
 

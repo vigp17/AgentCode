@@ -8,9 +8,15 @@
     "type": "git",
     "url": "https://github.com/vigp17/AgentCode"
   },
-  "engines": { "vscode": "^1.85.0" },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
   "icon": "media/icon.png",
-  "categories": ["AI", "Chat", "Other"],
+  "categories": [
+    "AI",
+    "Chat",
+    "Other"
+  ],
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
@@ -58,17 +64,22 @@
         "agentcode.anthropicApiKey": {
           "type": "string",
           "default": "",
-          "description": "Anthropic API key (sk-ant-...)"
+          "description": "Anthropic API key (sk-ant-...). Falls back to ANTHROPIC_API_KEY in the workspace .env file or environment."
+        },
+        "agentcode.azureApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Azure OpenAI API key. Falls back to AZURE_API_KEY in the workspace .env file or environment."
         },
         "agentcode.openaiApiKey": {
           "type": "string",
           "default": "",
-          "description": "OpenAI API key (sk-...)"
+          "description": "OpenAI API key (sk-...). Falls back to OPENAI_API_KEY in the workspace .env file or environment."
         },
         "agentcode.geminiApiKey": {
           "type": "string",
           "default": "",
-          "description": "Google Gemini API key"
+          "description": "Google Gemini API key. Falls back to GEMINI_API_KEY in the workspace .env file or environment."
         },
         "agentcode.model": {
           "type": "string",
