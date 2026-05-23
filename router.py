@@ -47,11 +47,20 @@ GEMINI_TIERS = [
     ModelTier("gemini/gemini-2.5-pro", "heavy", "Gemini 2.5 Pro", 1.25, 10.00),
 ]
 
+# Azure deployment names are user-defined, so tiers use common defaults.
+# Users can override via settings.json model.light/medium/heavy.
+AZURE_TIERS = [
+    ModelTier("azure/gpt-4o-mini", "light", "Azure GPT-4o Mini", 0.15, 0.60),
+    ModelTier("azure/gpt-4o", "medium", "Azure GPT-4o", 2.50, 10.00),
+    ModelTier("azure/gpt-4o", "heavy", "Azure GPT-4o", 2.50, 10.00),
+]
+
 # Provider configs keyed by prefix
 PROVIDER_TIERS = {
     "anthropic": ANTHROPIC_TIERS,
     "openai": OPENAI_TIERS,
     "gemini": GEMINI_TIERS,
+    "azure": AZURE_TIERS,
 }
 
 
@@ -203,7 +212,9 @@ class ModelRouter:
     def detect_provider(self, model_string: str) -> str:
         """Detect provider from a model string."""
         m = model_string.lower()
-        if "claude" in m or "anthropic" in m:
+        if m.startswith("azure/"):
+            return "azure"
+        elif "claude" in m or "anthropic" in m:
             return "anthropic"
         elif "gpt" in m or "openai" in m or "o1" in m or "o3" in m:
             return "openai"

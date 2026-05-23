@@ -144,6 +144,11 @@ export class AgentPanel implements vscode.Disposable {
           <div class="model-option" data-model="gemini/gemini-2.5-pro">Gemini 2.5 Pro</div>
           <div class="model-option" data-model="gemini/gemini-2.5-flash">Gemini 2.5 Flash</div>
         </div>
+        <div class="model-group">
+          <div class="model-group-label">Azure OpenAI</div>
+          <div class="model-option" data-model="azure/gpt-4o">Azure GPT-4o</div>
+          <div class="model-option" data-model="azure/gpt-4o-mini">Azure GPT-4o Mini</div>
+        </div>
       </div>
     </div>
     <button id="clear-btn" title="Clear conversation">↺</button>
