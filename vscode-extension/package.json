@@ -1,8 +1,8 @@
 {
   "name": "agentcode",
   "displayName": "AgentCode",
-  "description": "AI coding assistant — multi-model, cost-aware, open source",
-  "version": "1.1.2",
+  "description": "Agentic AI coding assistant — Claude, GPT, Gemini, inline completions, cost-aware routing, open source",
+  "version": "1.1.3",
   "publisher": "VigPai",
   "repository": {
     "type": "git",
@@ -12,10 +12,30 @@
     "vscode": "^1.85.0"
   },
   "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0d1117",
+    "theme": "dark"
+  },
   "categories": [
     "AI",
     "Chat",
     "Other"
+  ],
+  "keywords": [
+    "ai",
+    "claude",
+    "anthropic",
+    "gpt",
+    "openai",
+    "gemini",
+    "llm",
+    "agent",
+    "copilot",
+    "chat",
+    "inline completions",
+    "code assistant",
+    "multi-model",
+    "autocomplete"
   ],
   "activationEvents": [],
   "main": "./out/extension.js",
