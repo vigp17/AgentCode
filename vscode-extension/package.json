@@ -2,7 +2,7 @@
   "name": "agentcode",
   "displayName": "AgentCode",
   "description": "Agentic AI coding assistant — Claude, GPT, Gemini, inline completions, cost-aware routing, open source",
-  "version": "1.1.4",
+  "version": "1.2.0",
   "publisher": "VigPai",
   "repository": {
     "type": "git",
@@ -119,7 +119,22 @@
         "agentcode.inlineCompletions.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable inline code completions powered by Claude Haiku (requires Anthropic API key)"
+          "description": "Enable inline code completions (defaults to Claude Haiku; override with a custom endpoint below)"
+        },
+        "agentcode.inlineCompletions.endpoint": {
+          "type": "string",
+          "default": "",
+          "description": "Optional OpenAI-compatible /v1 endpoint for completions (e.g. http://localhost:11434/v1 for Ollama, or a HuggingFace Inference Endpoint URL). When set, used instead of Claude Haiku."
+        },
+        "agentcode.inlineCompletions.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model name to request from the custom endpoint (e.g. hf.co/Vigp17/agentcode-3b for Ollama, or your deployed model name)."
+        },
+        "agentcode.inlineCompletions.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Optional API key for the custom endpoint (leave blank for local Ollama). Falls back to AGENTCODE_COMPLETION_API_KEY in .env."
         }
       }
     }

@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 import * as https from "https";
+import * as http from "http";
+import { URL } from "url";
 import { loadWorkspaceEnv, resolveKey } from "./envLoader.js";
 
 interface CacheEntry {
@@ -27,8 +29,15 @@ export class InlineCompletionProvider
       return undefined;
     }
 
-    const apiKey = resolveKey("anthropicApiKey", "ANTHROPIC_API_KEY", loadWorkspaceEnv());
-    if (!apiKey) return undefined;
+    const dotenvVars = loadWorkspaceEnv();
+    const endpoint = config.get<string>("inlineCompletions.endpoint", "").trim();
+    const model = config.get<string>("inlineCompletions.model", "").trim();
+    const endpointKey = resolveKey("inlineCompletions.apiKey", "AGENTCODE_COMPLETION_API_KEY", dotenvVars);
+    const anthropicKey = resolveKey("anthropicApiKey", "ANTHROPIC_API_KEY", dotenvVars);
+
+    // Need either a custom endpoint (with model) OR an Anthropic key
+    const useCustom = endpoint && model;
+    if (!useCustom && !anthropicKey) return undefined;
 
     const text = document.getText();
     const offset = document.offsetAt(position);
@@ -63,13 +72,14 @@ export class InlineCompletionProvider
         this.statusBar.show();
 
         try {
-          const completion = await this.fetchCompletion(
-            prefix,
-            suffix,
-            apiKey,
-            document.languageId,
-            token
-          );
+          const completion = useCustom
+            ? await this.fetchFromCustomEndpoint(
+                prefix, suffix, endpoint, model, endpointKey,
+                document.languageId, token,
+              )
+            : await this.fetchFromAnthropic(
+                prefix, suffix, anthropicKey, document.languageId, token,
+              );
 
           this.addToCache(cacheKey, completion);
 
@@ -95,7 +105,7 @@ export class InlineCompletionProvider
     this.cache.set(key, { completion });
   }
 
-  private fetchCompletion(
+  private fetchFromAnthropic(
     prefix: string,
     suffix: string,
     apiKey: string,
@@ -138,7 +148,6 @@ export class InlineCompletionProvider
             try {
               const parsed = JSON.parse(data);
               const raw: string = parsed?.content?.[0]?.text ?? "";
-              // Single-line v1: take only the first line, strip trailing whitespace
               const firstLine = raw.split("\n")[0].trimEnd();
               resolve(firstLine);
             } catch {
@@ -149,12 +158,81 @@ export class InlineCompletionProvider
       );
 
       req.on("error", reject);
+      token.onCancellationRequested(() => { req.destroy(); resolve(""); });
+      req.write(body);
+      req.end();
+    });
+  }
 
-      token.onCancellationRequested(() => {
-        req.destroy();
-        resolve("");
+  // OpenAI-compatible endpoint: works with Ollama (localhost:11434/v1),
+  // HF Inference Endpoints, vLLM, TGI, or any /v1/chat/completions server.
+  // Designed to host Qwen 2.5-Coder fine-tunes (e.g. the AgentCode 3B).
+  private fetchFromCustomEndpoint(
+    prefix: string,
+    suffix: string,
+    endpoint: string,
+    model: string,
+    apiKey: string,
+    languageId: string,
+    token: vscode.CancellationToken
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let url: URL;
+      try { url = new URL(endpoint.replace(/\/+$/, "") + "/chat/completions"); }
+      catch { resolve(""); return; }
+
+      const body = JSON.stringify({
+        model,
+        max_tokens: 100,
+        temperature: 0.2,
+        messages: [
+          {
+            role: "system",
+            content: "You are a code completion engine. Output only the completion text with no explanation, no markdown fences, and no surrounding quotes. Single line only.",
+          },
+          {
+            role: "user",
+            content: `Complete this ${languageId} code at the cursor position marked by <CURSOR>. Return only what should be inserted — a single line or empty string.
+
+<prefix>${prefix.slice(-1500)}<CURSOR></prefix>
+<suffix>${suffix.slice(0, 400)}</suffix>`,
+          },
+        ],
       });
 
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Content-Length": String(Buffer.byteLength(body)),
+      };
+      if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
+      const transport = url.protocol === "https:" ? https : http;
+      const req = transport.request(
+        {
+          hostname: url.hostname,
+          port: url.port || (url.protocol === "https:" ? 443 : 80),
+          path: url.pathname + url.search,
+          method: "POST",
+          headers,
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (chunk) => (data += chunk));
+          res.on("end", () => {
+            try {
+              const parsed = JSON.parse(data);
+              const raw: string = parsed?.choices?.[0]?.message?.content ?? "";
+              const firstLine = raw.split("\n")[0].trimEnd();
+              resolve(firstLine);
+            } catch {
+              resolve("");
+            }
+          });
+        }
+      );
+
+      req.on("error", reject);
+      token.onCancellationRequested(() => { req.destroy(); resolve(""); });
       req.write(body);
       req.end();
     });

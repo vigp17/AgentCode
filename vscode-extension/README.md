@@ -42,7 +42,23 @@ Press `Cmd+Shift+A` (Mac) / `Ctrl+Shift+A` (Windows/Linux) or run `AgentCode: Op
 Ask AgentCode to read files, write code, run shell commands, search your codebase, and more — all from the side panel. It streams responses in real time, shows every tool call it makes, and asks for your approval before writing or running anything.
 
 ### Inline Completions
-Ghost-text suggestions appear as you type, powered by Claude Haiku. Press `Tab` to accept. Toggle on/off anytime via `AgentCode: Toggle inline completions` in the Command Palette.
+Ghost-text suggestions appear as you type. Press `Tab` to accept. Toggle on/off anytime via `AgentCode: Toggle inline completions` in the Command Palette.
+
+By default completions use **Claude Haiku** (requires `agentcode.anthropicApiKey`). You can swap in any OpenAI-compatible endpoint — e.g. a local Ollama running an open-weight coding model — by setting `agentcode.inlineCompletions.endpoint` and `agentcode.inlineCompletions.model`.
+
+**Example: run the open-source AgentCode 3B (Qwen-Coder fine-tune) locally with Ollama**
+
+```bash
+ollama pull hf.co/Vigp17/agentcode-3b
+ollama serve
+```
+
+Then in VS Code Settings:
+- `agentcode.inlineCompletions.endpoint` = `http://localhost:11434/v1`
+- `agentcode.inlineCompletions.model` = `hf.co/Vigp17/agentcode-3b`
+- Leave `agentcode.inlineCompletions.apiKey` blank
+
+Completions are now free, local, and private.
 
 ### Multi-Model Support
 Switch models mid-session from the dropdown in the chat panel. Works with:
@@ -88,6 +104,9 @@ When AgentCode wants to edit a file, VS Code's native diff viewer opens so you c
 | `agentcode.model` | `claude-sonnet-4-6` | Default model |
 | `agentcode.executablePath` | `agentcode` | Path to `agentcode` binary if not on PATH |
 | `agentcode.inlineCompletions.enabled` | `true` | Enable inline completions |
+| `agentcode.inlineCompletions.endpoint` | — | Optional OpenAI-compatible `/v1` endpoint (e.g. `http://localhost:11434/v1` for Ollama) |
+| `agentcode.inlineCompletions.model` | — | Model name for the custom endpoint (e.g. `hf.co/Vigp17/agentcode-3b`) |
+| `agentcode.inlineCompletions.apiKey` | — | API key for the custom endpoint (blank for local Ollama) |
 
 Keys can also be set via environment variables or a `.env` file in your project root — VS Code settings take priority.
 
