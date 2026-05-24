@@ -151,6 +151,8 @@ def handle_slash_command(
             config.model = arg
             if config.router:
                 config.router.enabled = False
+                config.router.default_model = arg
+                config.router.provider = config.router.detect_provider(arg)
             console.print(f"[success]✓ Switched to model: {arg} (routing disabled)[/success]")
         else:
             console.print(f"[info]Current model: {config.model}[/info]")
