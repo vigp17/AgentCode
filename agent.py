@@ -18,6 +18,8 @@ import litellm
 from rich.console import Console
 from rich.markdown import Markdown
 
+from xml_tool_parser import looks_like_xml_tool_call, parse_xml_tool_calls, strip_think
+
 from tools import TOOL_DEFINITIONS, execute_tool
 from router import ModelRouter, display_routing_decision
 from mcp_client import MCPManager
@@ -345,6 +347,18 @@ def run_agent_loop(
                 usage.completion_tokens or 0,
                 cost,
             )
+
+        # Open-weight fine-tunes (e.g. Vigp17/agentcode-27b) may emit tool
+        # calls as inline XML in the text response. Detect and convert before
+        # treating this as a pure text turn.
+        if not tool_calls_accum and looks_like_xml_tool_call(full_text):
+            cleaned, xml_calls = parse_xml_tool_calls(full_text)
+            if xml_calls:
+                full_text = cleaned
+                for i, tc in enumerate(xml_calls):
+                    tool_calls_accum[i] = tc
+        elif not tool_calls_accum:
+            full_text = strip_think(full_text)
 
         # Pure text response — done
         if not tool_calls_accum:

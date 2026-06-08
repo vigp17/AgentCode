@@ -12,6 +12,7 @@ from agent import (
     build_system_prompt, load_project_config, load_hooks,
     _run_subagents, _run_hook, _is_denied, _get_permission,
 )
+from xml_tool_parser import looks_like_xml_tool_call, parse_xml_tool_calls, strip_think
 
 
 # ── Wire protocol ─────────────────────────────────────────────────────────────
@@ -105,6 +106,18 @@ def _server_turn(
                             tool_calls_accum[idx]["name"] += tc.function.name
                         if tc.function.arguments:
                             tool_calls_accum[idx]["arguments"] += tc.function.arguments
+
+        # Some open-weight fine-tunes (e.g. Vigp17/agentcode-27b) emit tool
+        # calls as inline XML in the text response instead of using litellm's
+        # structured tool_calls field. Detect and convert.
+        if not tool_calls_accum and looks_like_xml_tool_call(full_text):
+            cleaned, xml_calls = parse_xml_tool_calls(full_text)
+            if xml_calls:
+                full_text = cleaned
+                for i, tc in enumerate(xml_calls):
+                    tool_calls_accum[i] = tc
+        elif not tool_calls_accum:
+            full_text = strip_think(full_text)
 
         if router and usage:
             try:
