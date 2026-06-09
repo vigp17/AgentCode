@@ -144,6 +144,10 @@ export class AgentPanel implements vscode.Disposable {
           <div class="model-option" data-model="gemini/gemini-2.5-pro">Gemini 2.5 Pro</div>
           <div class="model-option" data-model="gemini/gemini-2.5-flash">Gemini 2.5 Flash</div>
         </div>
+        <div class="model-group">
+          <div class="model-group-label">Local (Ollama)</div>
+          <div class="model-option" data-model="ollama/agentcode-27b">AgentCode 27B</div>
+        </div>
       </div>
     </div>
     <button id="clear-btn" title="Clear conversation">↺</button>

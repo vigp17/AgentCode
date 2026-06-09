@@ -66,6 +66,32 @@ Switch models mid-session from the dropdown in the chat panel. Works with:
 | Anthropic | `claude-sonnet-4-6` (default), `claude-haiku-4-5`, `claude-opus-4-7` |
 | OpenAI | `gpt-4o`, `gpt-4o-mini` |
 | Google | `gemini/gemini-2.5-pro`, `gemini/gemini-2.5-flash` |
+| Local | `ollama/agentcode-27b` (the AgentCode fine-tune — see below) |
+
+### Run the AgentCode 27B Locally (Free, Private)
+
+AgentCode ships its own fine-tuned agentic model — a 27B Qwen-3.5 fine-tune that
+emits tool calls natively. Run it with [Ollama](https://ollama.com) and pay nothing.
+
+**Requirements:** ~20 GB free RAM (Q4_K_M quantization). A 32 GB+ Apple Silicon
+Mac or any machine with a 16 GB+ GPU is comfortable.
+
+```bash
+# 1. Pull the GGUF from HuggingFace (~16 GB, one time)
+ollama pull hf.co/Vigp17/agentcode-27b-gguf:Q4_K_M
+
+# 2. Alias it to a clean name AgentCode expects
+ollama cp hf.co/Vigp17/agentcode-27b-gguf:Q4_K_M agentcode-27b
+```
+
+Then pick **Local → AgentCode 27B** from the chat panel dropdown (or set
+`agentcode.model` to `ollama/agentcode-27b`). AgentCode parses the model's
+XML-style tool calls and strips its `<think>` reasoning automatically.
+
+> Don't have the hardware? Deploy the model on a
+> [HuggingFace Inference Endpoint](https://huggingface.co/Vigp17/agentcode-27b)
+> (GPU, ~$0.50/hr, scale-to-zero) and point `agentcode.model` at it via litellm,
+> or just use Claude/GPT/Gemini instead.
 
 ### Cost-Aware Routing
 Automatically routes each request to the cheapest model capable of handling it — heavy tasks go to powerful models, simple ones go to fast/cheap ones.
