@@ -31,8 +31,6 @@ export class AgentProcess {
     const resolved: Record<string, string> = {};
     for (const [setting, envVar] of [
       ["anthropicApiKey", "ANTHROPIC_API_KEY"],
-      ["azureApiKey",     "AZURE_API_KEY"],
-      ["azureEndpoint",   "AZURE_API_BASE"],
       ["openaiApiKey",    "OPENAI_API_KEY"],
       ["geminiApiKey",    "GEMINI_API_KEY"],
     ] as const) {

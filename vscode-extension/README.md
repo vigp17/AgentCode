@@ -21,8 +21,6 @@ Open VS Code Settings (`Cmd+,` / `Ctrl+,`) and search **AgentCode**, then paste 
 | `agentcode.anthropicApiKey` | `sk-ant-...` |
 | `agentcode.openaiApiKey` | `sk-...` |
 | `agentcode.geminiApiKey` | Google AI key |
-| `agentcode.azureApiKey` | Azure OpenAI key |
-| `agentcode.azureEndpoint` | `https://my-resource.openai.azure.com` |
 
 Or add a `.env` file to your project root — AgentCode reads it automatically:
 
@@ -68,7 +66,6 @@ Switch models mid-session from the dropdown in the chat panel. Works with:
 | Anthropic | `claude-sonnet-4-6` (default), `claude-haiku-4-5`, `claude-opus-4-7` |
 | OpenAI | `gpt-4o`, `gpt-4o-mini` |
 | Google | `gemini/gemini-2.5-pro`, `gemini/gemini-2.5-flash` |
-| Azure OpenAI | `azure/<your-deployment>` (e.g. `azure/gpt-4o`) |
 
 ### Cost-Aware Routing
 Automatically routes each request to the cheapest model capable of handling it — heavy tasks go to powerful models, simple ones go to fast/cheap ones.
@@ -99,8 +96,6 @@ When AgentCode wants to edit a file, VS Code's native diff viewer opens so you c
 | `agentcode.anthropicApiKey` | — | Anthropic API key |
 | `agentcode.openaiApiKey` | — | OpenAI API key |
 | `agentcode.geminiApiKey` | — | Google Gemini API key |
-| `agentcode.azureApiKey` | — | Azure OpenAI API key |
-| `agentcode.azureEndpoint` | — | Azure OpenAI endpoint URL |
 | `agentcode.model` | `claude-sonnet-4-6` | Default model |
 | `agentcode.executablePath` | `agentcode` | Path to `agentcode` binary if not on PATH |
 | `agentcode.inlineCompletions.enabled` | `true` | Enable inline completions |
