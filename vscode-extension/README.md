@@ -44,16 +44,16 @@ Ghost-text suggestions appear as you type. Press `Tab` to accept. Toggle on/off 
 
 By default completions use **Claude Haiku** (requires `agentcode.anthropicApiKey`). You can swap in any OpenAI-compatible endpoint — e.g. a local Ollama running an open-weight coding model — by setting `agentcode.inlineCompletions.endpoint` and `agentcode.inlineCompletions.model`.
 
-**Example: run the open-source AgentCode 3B (Qwen-Coder fine-tune) locally with Ollama**
+**Example: run a small coding model locally with Ollama**
 
 ```bash
-ollama pull hf.co/Vigp17/agentcode-3b
+ollama pull qwen2.5-coder:3b
 ollama serve
 ```
 
 Then in VS Code Settings:
 - `agentcode.inlineCompletions.endpoint` = `http://localhost:11434/v1`
-- `agentcode.inlineCompletions.model` = `hf.co/Vigp17/agentcode-3b`
+- `agentcode.inlineCompletions.model` = `qwen2.5-coder:3b`
 - Leave `agentcode.inlineCompletions.apiKey` blank
 
 Completions are now free, local, and private.
@@ -126,7 +126,7 @@ When AgentCode wants to edit a file, VS Code's native diff viewer opens so you c
 | `agentcode.executablePath` | `agentcode` | Path to `agentcode` binary if not on PATH |
 | `agentcode.inlineCompletions.enabled` | `true` | Enable inline completions |
 | `agentcode.inlineCompletions.endpoint` | — | Optional OpenAI-compatible `/v1` endpoint (e.g. `http://localhost:11434/v1` for Ollama) |
-| `agentcode.inlineCompletions.model` | — | Model name for the custom endpoint (e.g. `hf.co/Vigp17/agentcode-3b`) |
+| `agentcode.inlineCompletions.model` | — | Model name for the custom endpoint (e.g. `qwen2.5-coder:3b`) |
 | `agentcode.inlineCompletions.apiKey` | — | API key for the custom endpoint (blank for local Ollama) |
 
 Keys can also be set via environment variables or a `.env` file in your project root — VS Code settings take priority.

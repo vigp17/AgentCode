@@ -166,7 +166,7 @@ export class InlineCompletionProvider
 
   // OpenAI-compatible endpoint: works with Ollama (localhost:11434/v1),
   // HF Inference Endpoints, vLLM, TGI, or any /v1/chat/completions server.
-  // Designed to host Qwen 2.5-Coder fine-tunes (e.g. the AgentCode 3B).
+  // Works with any small local coding model (e.g. qwen2.5-coder:3b via Ollama).
   private fetchFromCustomEndpoint(
     prefix: string,
     suffix: string,

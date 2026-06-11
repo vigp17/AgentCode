@@ -146,7 +146,6 @@ export class AgentPanel implements vscode.Disposable {
         </div>
         <div class="model-group">
           <div class="model-group-label">Local (Ollama)</div>
-          <div class="model-option" data-model="ollama/agentcode-3b">AgentCode 3B</div>
           <div class="model-option" data-model="ollama/agentcode-27b">AgentCode 27B</div>
         </div>
       </div>

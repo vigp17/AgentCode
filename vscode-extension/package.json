@@ -2,7 +2,7 @@
   "name": "agentcode",
   "displayName": "AgentCode",
   "description": "Agentic AI coding assistant — Claude, GPT, Gemini, inline completions, cost-aware routing, open source",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "publisher": "VigPai",
   "repository": {
     "type": "git",
@@ -119,7 +119,7 @@
         "agentcode.inlineCompletions.model": {
           "type": "string",
           "default": "",
-          "description": "Model name to request from the custom endpoint (e.g. hf.co/Vigp17/agentcode-3b for Ollama, or your deployed model name)."
+          "description": "Model name to request from the custom endpoint (e.g. qwen2.5-coder:3b for Ollama, or your deployed model name)."
         },
         "agentcode.inlineCompletions.apiKey": {
           "type": "string",
