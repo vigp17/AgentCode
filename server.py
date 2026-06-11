@@ -12,7 +12,10 @@ from agent import (
     build_system_prompt, load_project_config, load_hooks,
     _run_subagents, _run_hook, _is_denied, _get_permission,
 )
-from xml_tool_parser import looks_like_xml_tool_call, parse_xml_tool_calls, strip_think
+from xml_tool_parser import (
+    looks_like_xml_tool_call, parse_xml_tool_calls, strip_think,
+    looks_like_json_tool_call, parse_json_tool_calls,
+)
 
 
 # ── Wire protocol ─────────────────────────────────────────────────────────────
@@ -107,17 +110,20 @@ def _server_turn(
                         if tc.function.arguments:
                             tool_calls_accum[idx]["arguments"] += tc.function.arguments
 
-        # Some open-weight fine-tunes (e.g. Vigp17/agentcode-27b) emit tool
-        # calls as inline XML in the text response instead of using litellm's
-        # structured tool_calls field. Detect and convert.
-        if not tool_calls_accum and looks_like_xml_tool_call(full_text):
-            cleaned, xml_calls = parse_xml_tool_calls(full_text)
-            if xml_calls:
-                full_text = cleaned
-                for i, tc in enumerate(xml_calls):
-                    tool_calls_accum[i] = tc
-        elif not tool_calls_accum:
-            full_text = strip_think(full_text)
+        # Open-weight fine-tunes emit tool calls in the text response instead of
+        # litellm's structured tool_calls field. The 27B uses XML
+        # (<function=...>), the 3B uses bare JSON ({"name":...,"arguments":...}).
+        # Detect and convert both.
+        if not tool_calls_accum:
+            if looks_like_xml_tool_call(full_text):
+                cleaned, parsed = parse_xml_tool_calls(full_text)
+            elif looks_like_json_tool_call(full_text):
+                cleaned, parsed = parse_json_tool_calls(full_text)
+            else:
+                cleaned, parsed = strip_think(full_text), []
+            full_text = cleaned
+            for i, tc in enumerate(parsed):
+                tool_calls_accum[i] = tc
 
         if router and usage:
             try:

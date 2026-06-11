@@ -18,7 +18,10 @@ import litellm
 from rich.console import Console
 from rich.markdown import Markdown
 
-from xml_tool_parser import looks_like_xml_tool_call, parse_xml_tool_calls, strip_think
+from xml_tool_parser import (
+    looks_like_xml_tool_call, parse_xml_tool_calls, strip_think,
+    looks_like_json_tool_call, parse_json_tool_calls,
+)
 
 from tools import TOOL_DEFINITIONS, execute_tool
 from router import ModelRouter, display_routing_decision
@@ -348,17 +351,19 @@ def run_agent_loop(
                 cost,
             )
 
-        # Open-weight fine-tunes (e.g. Vigp17/agentcode-27b) may emit tool
-        # calls as inline XML in the text response. Detect and convert before
-        # treating this as a pure text turn.
-        if not tool_calls_accum and looks_like_xml_tool_call(full_text):
-            cleaned, xml_calls = parse_xml_tool_calls(full_text)
-            if xml_calls:
-                full_text = cleaned
-                for i, tc in enumerate(xml_calls):
-                    tool_calls_accum[i] = tc
-        elif not tool_calls_accum:
-            full_text = strip_think(full_text)
+        # Open-weight fine-tunes emit tool calls in the text response: the 27B
+        # uses XML (<function=...>), the 3B uses bare JSON. Detect and convert
+        # before treating this as a pure text turn.
+        if not tool_calls_accum:
+            if looks_like_xml_tool_call(full_text):
+                cleaned, parsed = parse_xml_tool_calls(full_text)
+            elif looks_like_json_tool_call(full_text):
+                cleaned, parsed = parse_json_tool_calls(full_text)
+            else:
+                cleaned, parsed = strip_think(full_text), []
+            full_text = cleaned
+            for i, tc in enumerate(parsed):
+                tool_calls_accum[i] = tc
 
         # Pure text response — done
         if not tool_calls_accum:

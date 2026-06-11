@@ -85,3 +85,81 @@ def parse_xml_tool_calls(text: str) -> tuple[str, list[dict]]:
 
     cleaned = _TOOL_CALL_RE.sub("", cleaned).strip()
     return cleaned, tool_calls
+
+
+# ── JSON-style tool calls (e.g. the AgentCode 3B) ─────────────────────────────
+# Smaller fine-tunes often emit a bare JSON object instead of the XML form:
+#     {"name": "git_status", "arguments": {}}
+# optionally wrapped in <tool_call>...</tool_call>. litellm doesn't pick these
+# up as structured tool_calls, so we detect and convert them too.
+
+
+def looks_like_json_tool_call(text: str) -> bool:
+    """Cheap check: a JSON object mentioning both name and arguments."""
+    return '"name"' in text and '"arguments"' in text
+
+
+def _extract_json_objects(text: str) -> list[str]:
+    """Return top-level {...} substrings via brace matching (ignores braces in strings)."""
+    objs: list[str] = []
+    depth = 0
+    start = None
+    in_str = False
+    escape = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start is not None:
+                    objs.append(text[start:i + 1])
+                    start = None
+    return objs
+
+
+def parse_json_tool_calls(text: str) -> tuple[str, list[dict]]:
+    """
+    Extract bare-JSON tool calls and return (cleaned_text, tool_calls).
+
+    Handles {"name": ..., "arguments": {...}} objects, with or without
+    surrounding <tool_call> tags. Returns the same accumulator shape as
+    parse_xml_tool_calls.
+    """
+    cleaned = strip_think(text)
+    inner = cleaned.replace("<tool_call>", "").replace("</tool_call>", "")
+
+    tool_calls: list[dict] = []
+    matched_spans: list[str] = []
+    for cand in _extract_json_objects(inner):
+        try:
+            obj = json.loads(cand)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(obj, dict) and "name" in obj and "arguments" in obj:
+            args = obj["arguments"]
+            args_str = args if isinstance(args, str) else json.dumps(args)
+            tool_calls.append({
+                "id": f"call_{uuid.uuid4().hex[:8]}",
+                "name": obj["name"],
+                "arguments": args_str,
+            })
+            matched_spans.append(cand)
+
+    if tool_calls:
+        for span in matched_spans:
+            cleaned = cleaned.replace(span, "")
+        cleaned = cleaned.replace("<tool_call>", "").replace("</tool_call>", "").strip()
+    return cleaned, tool_calls
