@@ -130,7 +130,8 @@ export class AgentPanel implements vscode.Disposable {
         <div class="model-group">
           <div class="model-group-label">Claude</div>
           <div class="model-option" data-model="claude-sonnet-4-6">Sonnet 4.6</div>
-          <div class="model-option" data-model="claude-opus-4-7">Opus 4.7</div>
+          <div class="model-option" data-model="claude-opus-4-8">Opus 4.8</div>
+          <div class="model-option" data-model="claude-fable-5">Fable 5</div>
           <div class="model-option" data-model="claude-haiku-4-5-20251001">Haiku 4.5</div>
         </div>
         <div class="model-group">

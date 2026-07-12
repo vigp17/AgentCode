@@ -63,7 +63,7 @@ Switch models mid-session from the dropdown in the chat panel. Works with:
 
 | Provider | Models |
 |----------|--------|
-| Anthropic | `claude-sonnet-4-6` (default), `claude-haiku-4-5`, `claude-opus-4-7` |
+| Anthropic | `claude-sonnet-4-6` (default), `claude-haiku-4-5`, `claude-opus-4-8`, `claude-fable-5` |
 | OpenAI | `gpt-4o`, `gpt-4o-mini` |
 | Google | `gemini/gemini-2.5-pro`, `gemini/gemini-2.5-flash` |
 | Local | `ollama/agentcode-27b` (the AgentCode fine-tune — see below) |

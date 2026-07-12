@@ -30,9 +30,11 @@ class ModelTier:
 # Costs are approximate as of mid-2026.
 
 ANTHROPIC_TIERS = [
-    ModelTier("claude-haiku-4-5-20251001", "light", "Haiku 4.5", 0.80, 4.00),
+    ModelTier("claude-haiku-4-5-20251001", "light", "Haiku 4.5", 1.00, 5.00),
     ModelTier("claude-sonnet-4-6", "medium", "Sonnet 4.6", 3.00, 15.00),
-    ModelTier("claude-opus-4-6", "heavy", "Opus 4.6", 15.00, 75.00),
+    # Opus is the cost-aware heavy default. Fable 5 ($10/$50) is opt-in via
+    # --model / the extension picker — reserved for the hardest long-horizon work.
+    ModelTier("claude-opus-4-8", "heavy", "Opus 4.8", 5.00, 25.00),
 ]
 
 OPENAI_TIERS = [

@@ -43,7 +43,7 @@ pip install agentcode-cli
 
 **Step 2 — Install the extension:**
 - Search **AgentCode** in the VS Code Marketplace and install, or
-- Download `agentcode-1.1.1.vsix` from the [GitHub releases page](https://github.com/vigp17/AgentCode/releases) and install via `Cmd+Shift+X` → `...` → **Install from VSIX...**
+- Download the latest `.vsix` from the [GitHub releases page](https://github.com/vigp17/AgentCode/releases) and install via `Cmd+Shift+X` → `...` → **Install from VSIX...**
 
 **Step 3 — Add your API key:**
 `Cmd+,` → search **AgentCode** → paste your key into `agentcode.anthropicApiKey`
@@ -87,7 +87,8 @@ Press `Cmd+Shift+A`
 | Provider | Model | API Key |
 |----------|-------|---------|
 | Anthropic | `claude-sonnet-4-6` (default) | `ANTHROPIC_API_KEY` |
-| Anthropic | `claude-opus-4-7` | `ANTHROPIC_API_KEY` |
+| Anthropic | `claude-opus-4-8` | `ANTHROPIC_API_KEY` |
+| Anthropic | `claude-fable-5` (opt-in, hardest long-horizon work) | `ANTHROPIC_API_KEY` |
 | Anthropic | `claude-haiku-4-5-20251001` | `ANTHROPIC_API_KEY` |
 | OpenAI | `gpt-4o`, `gpt-4o-mini`, `gpt-5.5` | `OPENAI_API_KEY` |
 | Google | `gemini/gemini-2.5-pro`, `gemini/gemini-2.5-flash` | `GEMINI_API_KEY` |
@@ -102,9 +103,11 @@ AgentCode automatically picks the cheapest model that can handle the task:
 |------|-----------|--------|--------|
 | Light | Haiku 4.5 | GPT-4o Mini | Gemini 2.0 Flash |
 | Medium | Sonnet 4.6 | GPT-4o | Gemini 2.5 Flash |
-| Heavy | Opus 4.7 | GPT-5.5 | Gemini 2.5 Pro |
+| Heavy | Opus 4.8 | GPT-5.5 | Gemini 2.5 Pro |
 
 Simple questions go to cheap/fast models. Complex multi-file tasks go to powerful ones. Use `--no-route` to always use the specified model.
+
+For the hardest long-horizon agent work, pick **`claude-fable-5`** manually (CLI `--model` or the extension picker). It is not used by auto-routing so routine heavy tasks stay on Opus.
 
 ---
 
