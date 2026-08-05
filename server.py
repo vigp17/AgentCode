@@ -6,11 +6,11 @@ from pathlib import Path
 
 import litellm
 
-from tools import TOOL_DEFINITIONS, execute_tool
+from tools import TOOL_DEFINITIONS
 from agent import (
     AgentConfig, Conversation,
     build_system_prompt, load_project_config, load_hooks,
-    _run_subagents, _run_hook, _is_denied, _get_permission,
+    _dispatch_tool, _record_cost, _run_hook,
 )
 from xml_tool_parser import (
     looks_like_xml_tool_call, parse_xml_tool_calls, strip_think,
@@ -71,6 +71,7 @@ def _server_turn(
 
     mcp = config.mcp_manager
     all_tools = TOOL_DEFINITIONS + (mcp.get_tool_definitions() if mcp else [])
+    tool_names = {t["function"]["name"] for t in all_tools}
 
     for _ in range(config.max_iterations):
         stream = litellm.completion(
@@ -111,14 +112,13 @@ def _server_turn(
                             tool_calls_accum[idx]["arguments"] += tc.function.arguments
 
         # Open-weight fine-tunes emit tool calls in the text response instead of
-        # litellm's structured tool_calls field. The 27B uses XML
-        # (<function=...>), the 3B uses bare JSON ({"name":...,"arguments":...}).
-        # Detect and convert both.
+        # litellm's structured tool_calls field. Some use XML (<function=...>),
+        # others bare JSON ({"name":...,"arguments":...}). Detect and convert both.
         if not tool_calls_accum:
             if looks_like_xml_tool_call(full_text):
                 cleaned, parsed = parse_xml_tool_calls(full_text)
             elif looks_like_json_tool_call(full_text):
-                cleaned, parsed = parse_json_tool_calls(full_text)
+                cleaned, parsed = parse_json_tool_calls(full_text, tool_names)
             else:
                 cleaned, parsed = strip_think(full_text), []
             full_text = cleaned
@@ -126,20 +126,7 @@ def _server_turn(
                 tool_calls_accum[i] = tc
 
         if router and usage:
-            try:
-                cost = litellm.completion_cost(
-                    model=model,
-                    prompt_tokens=usage.prompt_tokens or 0,
-                    completion_tokens=usage.completion_tokens or 0,
-                )
-            except Exception:
-                cost = 0.0
-            router.cost_tracker.record(
-                model,
-                usage.prompt_tokens or 0,
-                usage.completion_tokens or 0,
-                cost,
-            )
+            _record_cost(router, model, usage)
 
         if not tool_calls_accum:
             conversation.messages.append({"role": "assistant", "content": full_text})
@@ -173,25 +160,7 @@ def _server_turn(
             if pre_hook:
                 _run_hook(pre_hook, tool_name, args)
 
-            if tool_name == "spawn_subagents":
-                if _is_denied(tool_name, config):
-                    result = f"Tool '{tool_name}' is blocked by settings."
-                else:
-                    result = _run_subagents(args.get("tasks", []), config, True)
-            elif mcp and mcp.is_mcp_tool(tool_name):
-                if _is_denied(tool_name, config):
-                    result = f"Tool '{tool_name}' is blocked by settings."
-                else:
-                    result = mcp.call_tool(tool_name, args)
-            else:
-                perm = _get_permission(tool_name, config)
-                if perm == "deny":
-                    result = f"Tool '{tool_name}' is blocked by settings."
-                elif perm == "ask":
-                    approved = _ask_permission_server(tool_name, args)
-                    result = execute_tool(tool_name, args) if approved else f"Tool '{tool_name}' denied."
-                else:
-                    result = execute_tool(tool_name, args)
+            result = _dispatch_tool(tool_name, args, config, True)
 
             post_hook = hooks.get(f"post_{tool_name}") or hooks.get("post_tool")
             if post_hook:
@@ -231,6 +200,11 @@ def run_server(config: AgentConfig) -> None:
       {"type": "cleared"}
       {"type": "pong"}
     """
+    # Route every approval — including ones raised by subagent threads — through
+    # the stdio protocol. The terminal prompt would read the extension's own
+    # stdin and print non-JSON to the protocol stream.
+    config.permission_cb = _ask_permission_server
+
     project_config = load_project_config(config.project_dir)
     system_prompt = build_system_prompt(config.project_dir, project_config["combined"])
     conversation = Conversation(system=system_prompt)

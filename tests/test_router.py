@@ -33,7 +33,7 @@ def test_route_anthropic_tiers():
         "refactor the entire architecture across multiple files and redesign the system"
     )
     assert tier == "heavy"
-    assert model == "claude-opus-4-8"
+    assert model == "claude-opus-5"
 
 
 def test_route_disabled_uses_default():
@@ -57,5 +57,10 @@ def test_detect_provider():
 
 def test_estimate_cost_known_model():
     router = ModelRouter()
-    cost = router.estimate_cost("claude-opus-4-8", 1_000_000, 1_000_000)
+    cost = router.estimate_cost("claude-opus-5", 1_000_000, 1_000_000)
     assert abs(cost - 30.0) < 0.01  # $5 in + $25 out
+
+
+def test_estimate_cost_unknown_model_is_zero():
+    router = ModelRouter()
+    assert router.estimate_cost("some/unlisted-model", 1_000_000, 1_000_000) == 0.0

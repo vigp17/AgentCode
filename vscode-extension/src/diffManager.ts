@@ -54,8 +54,26 @@ export async function showEditDiff(args: Record<string, unknown>): Promise<boole
     return choice === "Accept";
   } finally {
     reg.dispose();
-    // Close the diff tab
-    await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+    await closeDiffTab(proposedUri);
+  }
+}
+
+/**
+ * Close only the diff tab we opened. closeActiveEditor would shut whatever the
+ * user happened to switch to while the approval prompt was up.
+ */
+async function closeDiffTab(proposedUri: vscode.Uri): Promise<void> {
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      const input = tab.input;
+      if (
+        input instanceof vscode.TabInputTextDiff &&
+        input.modified.toString() === proposedUri.toString()
+      ) {
+        await vscode.window.tabGroups.close(tab);
+        return;
+      }
+    }
   }
 }
 
@@ -65,7 +83,13 @@ export async function promptFallback(
   args: Record<string, unknown>
 ): Promise<boolean> {
   const argsPreview = Object.entries(args)
-    .map(([k, v]) => `${k}: ${String(v).slice(0, 80)}`)
+    .map(([k, v]) => {
+      const s = String(v);
+      // Never truncate the command — the user is approving this exact string,
+      // and a trailing `; rm -rf ~` would be hidden by an ellipsis.
+      if (k === "command" || s.length <= 200) return `${k}: ${s}`;
+      return `${k}: ${s.slice(0, 200)}...`;
+    })
     .join("\n");
 
   const choice = await vscode.window.showWarningMessage(

@@ -2,7 +2,7 @@
   "name": "agentcode",
   "displayName": "AgentCode",
   "description": "Agentic AI coding assistant — Claude, GPT, Gemini, inline completions, cost-aware routing, open source",
-  "version": "1.3.4",
+  "version": "1.4.0",
   "publisher": "VigPai",
   "repository": {
     "type": "git",
@@ -98,8 +98,8 @@
         },
         "agentcode.model": {
           "type": "string",
-          "default": "claude-sonnet-4-6",
-          "description": "Default LLM model (e.g. claude-sonnet-4-6, gpt-4o, gemini/gemini-2.5-pro)"
+          "default": "claude-sonnet-5",
+          "description": "Default LLM model (e.g. claude-sonnet-5, gpt-4o, gemini/gemini-2.5-pro)"
         },
         "agentcode.executablePath": {
           "type": "string",
@@ -114,17 +114,17 @@
         "agentcode.inlineCompletions.endpoint": {
           "type": "string",
           "default": "",
-          "description": "Optional OpenAI-compatible /v1 endpoint for completions (e.g. http://localhost:11434/v1 for Ollama, or a HuggingFace Inference Endpoint URL). When set, used instead of Claude Haiku."
+          "description": "Optional OpenAI-compatible /v1 endpoint for completions (e.g. a vLLM server or a HuggingFace Inference Endpoint URL). When set, used instead of Claude Haiku."
         },
         "agentcode.inlineCompletions.model": {
           "type": "string",
           "default": "",
-          "description": "Model name to request from the custom endpoint (e.g. qwen2.5-coder:3b for Ollama, or your deployed model name)."
+          "description": "Model name to request from the custom endpoint (your deployed model name)."
         },
         "agentcode.inlineCompletions.apiKey": {
           "type": "string",
           "default": "",
-          "description": "Optional API key for the custom endpoint (leave blank for local Ollama). Falls back to AGENTCODE_COMPLETION_API_KEY in .env."
+          "description": "Optional API key for the custom endpoint, if it requires one. Falls back to AGENTCODE_COMPLETION_API_KEY in .env."
         }
       }
     }

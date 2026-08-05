@@ -25,10 +25,21 @@ GEMINI_API_KEY=...           # optional
 Run:
 
 ```bash
-agentcode                        # interactive REPL
-agentcode "fix the failing tests" # one-shot mode
-agentcode --model gpt-4o         # use a specific model
+agentcode                          # interactive REPL
+agentcode "fix the failing tests"  # one-shot mode
+agentcode --model gpt-5.6-terra    # use a specific model
 ```
+
+All flags:
+
+| Flag | Description |
+|------|-------------|
+| `--model`, `-m` | Model to use (overrides settings and `AGENTCODE_MODEL`) |
+| `--no-route` | Disable cost-aware routing — always use the specified model |
+| `--auto-approve`, `-y` | Skip permission prompts (use with caution) |
+| `--dir`, `-d` | Project directory to operate in (default: current dir) |
+| `--init-settings` | Create a starter `.agentcode/settings.json` and exit |
+| `--server` | JSON stdio server mode (used by the VS Code extension) |
 
 ---
 
@@ -58,7 +69,7 @@ Press `Cmd+Shift+A`
 | `agentcode.anthropicApiKey` | Anthropic API key |
 | `agentcode.openaiApiKey` | OpenAI API key |
 | `agentcode.geminiApiKey` | Google Gemini API key |
-| `agentcode.model` | Default model (e.g. `claude-sonnet-4-6`) |
+| `agentcode.model` | Default model (e.g. `claude-sonnet-5`) |
 | `agentcode.executablePath` | Path to `agentcode` if not on PATH |
 | `agentcode.inlineCompletions.enabled` | Enable/disable inline completions (default: `true`) |
 
@@ -86,12 +97,46 @@ Press `Cmd+Shift+A`
 
 | Provider | Model | API Key |
 |----------|-------|---------|
-| Anthropic | `claude-sonnet-4-6` (default) | `ANTHROPIC_API_KEY` |
-| Anthropic | `claude-opus-4-8` | `ANTHROPIC_API_KEY` |
+| Anthropic | `claude-sonnet-5` (default) | `ANTHROPIC_API_KEY` |
+| Anthropic | `claude-opus-5` | `ANTHROPIC_API_KEY` |
 | Anthropic | `claude-fable-5` (opt-in, hardest long-horizon work) | `ANTHROPIC_API_KEY` |
-| Anthropic | `claude-haiku-4-5-20251001` | `ANTHROPIC_API_KEY` |
-| OpenAI | `gpt-4o`, `gpt-4o-mini`, `gpt-5.5` | `OPENAI_API_KEY` |
-| Google | `gemini/gemini-2.5-pro`, `gemini/gemini-2.5-flash` | `GEMINI_API_KEY` |
+| Anthropic | `claude-haiku-4-5` | `ANTHROPIC_API_KEY` |
+| OpenAI | `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` | `OPENAI_API_KEY` |
+| Google | `gemini/gemini-3.1-pro-preview`, `gemini/gemini-3.6-flash`, `gemini/gemini-3.5-flash-lite` | `GEMINI_API_KEY` |
+
+Any of LiteLLM's ~3,000 models works — the table above is just the routing
+default. Run `/models <filter>` in the REPL to browse what's available with
+current prices, then `/model <name>` to switch.
+
+### Keeping up with new releases
+
+Pricing and model availability come from **LiteLLM's model registry**, not from
+hardcoded values in this repo. When a provider ships a new model:
+
+```bash
+pip install -U litellm
+```
+
+That's it — the new model becomes usable by name and its costs are tracked
+correctly, with no AgentCode release required. `/models` will list it.
+
+What does *not* update automatically is which model serves each routing tier
+(light/medium/heavy) — that's a judgement call, so it stays explicit. Point a
+tier at a new model yourself in `.agentcode/settings.json`:
+
+```json
+{
+  "model": {
+    "light":  "gpt-5.6-luna",
+    "medium": "gpt-5.6-terra",
+    "heavy":  "gpt-5.6-sol"
+  }
+}
+```
+
+If you set a model AgentCode can't price (a typo, or one newer than your
+LiteLLM version), it warns at startup and reports costs as `$0.00` rather than
+guessing.
 
 ---
 
@@ -101,9 +146,9 @@ AgentCode automatically picks the cheapest model that can handle the task:
 
 | Tier | Anthropic | OpenAI | Gemini |
 |------|-----------|--------|--------|
-| Light | Haiku 4.5 | GPT-4o Mini | Gemini 2.0 Flash |
-| Medium | Sonnet 4.6 | GPT-4o | Gemini 2.5 Flash |
-| Heavy | Opus 4.8 | GPT-5.5 | Gemini 2.5 Pro |
+| Light | Haiku 4.5 | GPT-5.6 Luna | Gemini 3.5 Flash-Lite |
+| Medium | Sonnet 5 | GPT-5.6 Terra | Gemini 3.6 Flash |
+| Heavy | Opus 5 | GPT-5.6 Sol | Gemini 3.1 Pro |
 
 Simple questions go to cheap/fast models. Complex multi-file tasks go to powerful ones. Use `--no-route` to always use the specified model.
 
@@ -142,7 +187,64 @@ For the hardest long-horizon agent work, pick **`claude-fable-5`** manually (CLI
 |------|-------------|------------|
 | `spawn_subagents` | Run multiple agents in parallel on subtasks | Auto |
 
-**Permission model:** Read-only tools auto-approve. Write/execute tools ask before running (unless `--auto-approve` / `-y` is set).
+**Permission model:** Read-only tools auto-approve. Write/execute tools and
+MCP tools ask before running (unless `--auto-approve` / `-y` is set). Tools on
+the `permissions.deny` list are always blocked, even with auto-approve on.
+Which tools fall into which bucket is configurable — see Settings below.
+
+---
+
+## Settings
+
+Create a settings file with:
+
+```bash
+agentcode --init-settings
+```
+
+This writes `.agentcode/settings.json` in your project. A global file at
+`~/.agentcode/settings.json` is also read; precedence is
+**CLI flags → project → global → built-in defaults**. View the merged result
+anytime with `/settings`.
+
+```json
+{
+  "permissions": {
+    "auto_approve_all": false,
+    "auto_approve": ["read_file", "list_directory", "search_files",
+                     "search_text", "git_status", "git_log", "git_diff",
+                     "spawn_subagents"],
+    "deny": []
+  },
+  "model": {
+    "default": "claude-sonnet-5",
+    "routing": true,
+    "light": null, "medium": null, "heavy": null
+  },
+  "limits": {
+    "max_file_size": 1000000,
+    "max_output": 50000,
+    "max_search_results": 100,
+    "max_iterations": 25
+  },
+  "hooks": {}
+}
+```
+
+| Key | Meaning |
+|-----|---------|
+| `permissions.auto_approve_all` | `true` skips all permission prompts (like `-y`) |
+| `permissions.auto_approve` | Tools that run without asking (default: read-only tools) |
+| `permissions.deny` | Tools that are always blocked — beats every other setting |
+| `model.default` | Default model string |
+| `model.routing` | Enable cost-aware routing |
+| `model.light/medium/heavy` | Override the model for a routing tier |
+| `limits.*` | File-size, output, search, and iteration caps |
+| `hooks` | Same format as `hooks.json` (see Hooks) |
+
+To gate an MCP tool or approve it permanently, use its full name, e.g.
+`"deny": ["mcp__github__delete_repository"]` or
+`"auto_approve": ["mcp__filesystem__read_file"]`.
 
 ---
 
@@ -151,6 +253,7 @@ For the hardest long-horizon agent work, pick **`claude-fable-5`** manually (CLI
 | Command | Description |
 |---------|-------------|
 | `/model <name>` | Switch model on the fly |
+| `/models [filter]` | Browse available models and live prices |
 | `/route` | Show or toggle cost-aware routing |
 | `/cost` | Show session cost breakdown |
 | `/mcp` | Manage MCP server connections |
@@ -185,6 +288,14 @@ Connect to any [MCP server](https://modelcontextprotocol.io) using `/mcp add`:
 ```
 
 Config is saved to `.agentcode/mcp.json` and reloaded on next launch.
+
+**Security notes:**
+- Credentials in `mcp.json` are stored in plaintext. AgentCode sets the file
+  to mode `600` and adds `.agentcode/` to your `.gitignore` automatically, but
+  prefer scoped, revocable tokens where the service offers them.
+- MCP tools ask for permission before running, like built-in write tools. Add
+  specific tools to `permissions.auto_approve` or `permissions.deny` in
+  settings.json to change that (see Settings).
 
 **Advanced** — edit `.agentcode/mcp.json` directly for custom servers:
 
@@ -234,45 +345,43 @@ AgentCode can spawn parallel agents for independent subtasks:
 
 The agent calls `spawn_subagents` internally, runs up to 5 agents in parallel, and returns combined results.
 
+Subagents inherit the session's permission settings, and their approval
+prompts are serialized so they never talk over each other. By default they
+cannot spawn subagents of their own — raise `AGENTCODE_MAX_SUBAGENT_DEPTH` if
+you want deeper nesting.
+
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  cli.py (UI)                    │
-│  REPL loop · slash commands · Rich terminal UI  │
-│  AGENTCODE.md · session persistence             │
-└──────────────────────┬──────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────┐
-│               agent.py (Brain)                  │
-│  Agentic loop · context management · permissions│
-│  Hooks · subagents · LLM-powered compaction     │
-│                                                 │
-│   while needs_follow_up:                        │
-│     1. Send messages + tools → LLM              │
-│     2. If tool_calls → execute, append, loop    │
-│     3. If text only  → done                     │
-│                                                 │
-│   LiteLLM ──→ Claude / GPT / Gemini             │
-└──────────────────────┬──────────────────────────┘
-                       │
-          ┌────────────┴────────────┐
-          │                         │
-┌─────────▼───────────┐   ┌─────────▼───────────┐
-│    tools.py (Hands) │   │  mcp_client.py       │
-│  read_file          │   │  Connect to MCP      │
-│  write_file         │   │  servers and expose  │
-│  edit_file          │   │  their tools to the  │
-│  run_command        │   │  agent loop.         │
-│  list_directory     │   └─────────────────────┘
-│  search_files       │
-│  search_text        │
-│  git_status/diff    │
-│  git_log/commit     │
-│  git_branch/push    │
-│  spawn_subagents    │
+┌────────────────────────┐      ┌────────────────────────┐
+│      cli.py (UI)       │      │  server.py (VS Code)   │
+│  REPL · slash commands │      │  JSON stdio protocol   │
+│  Rich terminal UI      │      │  for the extension     │
+└───────────┬────────────┘      └───────────┬────────────┘
+            │                               │
+┌───────────▼───────────────────────────────▼────────────┐
+│                    agent.py (Brain)                    │
+│  Agentic loop · context compaction · permissions       │
+│  Hooks · subagents (depth-capped) · settings.py config │
+│                                                        │
+│   while needs_follow_up:                               │
+│     1. router.py picks the model (cost-aware tiers)    │
+│     2. Send messages + tools → LLM (via LiteLLM)       │
+│     3. If tool_calls → execute, append, loop           │
+│        (xml_tool_parser.py converts inline XML/JSON    │
+│         tool calls from open-weight fine-tunes)        │
+│     4. If text only  → done                            │
+└───────────┬───────────────────────────────┬────────────┘
+            │                               │
+┌───────────▼─────────┐         ┌───────────▼────────────┐
+│  tools.py (Hands)   │         │      mcp_client.py     │
+│  read/write/edit    │         │  Connect to MCP        │
+│  run_command        │         │  servers and expose    │
+│  list/search        │         │  their tools to the    │
+│  git operations     │         │  agent loop            │
+│  spawn_subagents    │         └────────────────────────┘
 └─────────────────────┘
 ```
 
@@ -282,8 +391,9 @@ The agent calls `spawn_subagents` internally, runs up to 5 agents in parallel, a
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `AGENTCODE_MODEL` | Default model | `claude-sonnet-4-6` |
+| `AGENTCODE_MODEL` | Default model | `claude-sonnet-5` |
 | `AGENTCODE_MAX_ITERATIONS` | Max tool-call iterations per turn | `25` |
+| `AGENTCODE_MAX_SUBAGENT_DEPTH` | How deep subagents may nest | `1` |
 | `ANTHROPIC_API_KEY` | Anthropic API key | — |
 | `OPENAI_API_KEY` | OpenAI API key | — |
 | `GEMINI_API_KEY` | Google Gemini API key | — |

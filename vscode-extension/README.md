@@ -1,6 +1,6 @@
 # AgentCode
 
-**Agentic AI coding assistant for VS Code** — chat, edit, run tools, and get inline completions powered by Claude, GPT-4o, or Gemini. Open source, multi-model, and cost-aware.
+**Agentic AI coding assistant for VS Code** — chat, edit, run tools, and get inline completions powered by Claude, GPT, or Gemini. Open source, multi-model, and cost-aware.
 
 ---
 
@@ -42,56 +42,18 @@ Ask AgentCode to read files, write code, run shell commands, search your codebas
 ### Inline Completions
 Ghost-text suggestions appear as you type. Press `Tab` to accept. Toggle on/off anytime via `AgentCode: Toggle inline completions` in the Command Palette.
 
-By default completions use **Claude Haiku** (requires `agentcode.anthropicApiKey`). You can swap in any OpenAI-compatible endpoint — e.g. a local Ollama running an open-weight coding model — by setting `agentcode.inlineCompletions.endpoint` and `agentcode.inlineCompletions.model`.
-
-**Example: run a small coding model locally with Ollama**
-
-```bash
-ollama pull qwen2.5-coder:3b
-ollama serve
-```
-
-Then in VS Code Settings:
-- `agentcode.inlineCompletions.endpoint` = `http://localhost:11434/v1`
-- `agentcode.inlineCompletions.model` = `qwen2.5-coder:3b`
-- Leave `agentcode.inlineCompletions.apiKey` blank
-
-Completions are now free, local, and private.
+By default completions use **Claude Haiku** (requires `agentcode.anthropicApiKey`). You can swap in any OpenAI-compatible `/v1/chat/completions` endpoint — a vLLM or TGI server, or a HuggingFace Inference Endpoint — by setting `agentcode.inlineCompletions.endpoint`, `agentcode.inlineCompletions.model`, and (if the endpoint requires one) `agentcode.inlineCompletions.apiKey`.
 
 ### Multi-Model Support
 Switch models mid-session from the dropdown in the chat panel. Works with:
 
 | Provider | Models |
 |----------|--------|
-| Anthropic | `claude-sonnet-4-6` (default), `claude-haiku-4-5`, `claude-opus-4-8`, `claude-fable-5` |
-| OpenAI | `gpt-4o`, `gpt-4o-mini` |
-| Google | `gemini/gemini-2.5-pro`, `gemini/gemini-2.5-flash` |
-| Local | `ollama/agentcode-27b` (the AgentCode fine-tune — see below) |
+| Anthropic | `claude-sonnet-5` (default), `claude-haiku-4-5`, `claude-opus-5`, `claude-fable-5` |
+| OpenAI | `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` |
+| Google | `gemini/gemini-3.1-pro-preview`, `gemini/gemini-3.6-flash`, `gemini/gemini-3.5-flash-lite` |
 
-### Run the AgentCode 27B Locally (Free, Private)
-
-AgentCode ships its own fine-tuned agentic model — a 27B Qwen-3.5 fine-tune that
-emits tool calls natively. Run it with [Ollama](https://ollama.com) and pay nothing.
-
-**Requirements:** ~20 GB free RAM (Q4_K_M quantization). A 32 GB+ Apple Silicon
-Mac or any machine with a 16 GB+ GPU is comfortable.
-
-```bash
-# 1. Pull the GGUF from HuggingFace (~16 GB, one time)
-ollama pull hf.co/Vigp17/agentcode-27b-gguf:Q4_K_M
-
-# 2. Alias it to a clean name AgentCode expects
-ollama cp hf.co/Vigp17/agentcode-27b-gguf:Q4_K_M agentcode-27b
-```
-
-Then pick **Local → AgentCode 27B** from the chat panel dropdown (or set
-`agentcode.model` to `ollama/agentcode-27b`). AgentCode parses the model's
-XML-style tool calls and strips its `<think>` reasoning automatically.
-
-> Don't have the hardware? Deploy the model on a
-> [HuggingFace Inference Endpoint](https://huggingface.co/Vigp17/agentcode-27b)
-> (GPU, ~$0.50/hr, scale-to-zero) and point `agentcode.model` at it via litellm,
-> or just use Claude/GPT/Gemini instead.
+The dropdown lists common choices, but any of [LiteLLM's ~3,000 model names](https://docs.litellm.ai/docs/providers) works in the `agentcode.model` setting. Newly released models become available by upgrading the CLI backend's litellm (`pip install -U litellm`) — no extension update needed.
 
 ### Cost-Aware Routing
 Automatically routes each request to the cheapest model capable of handling it — heavy tasks go to powerful models, simple ones go to fast/cheap ones.
@@ -122,12 +84,12 @@ When AgentCode wants to edit a file, VS Code's native diff viewer opens so you c
 | `agentcode.anthropicApiKey` | — | Anthropic API key |
 | `agentcode.openaiApiKey` | — | OpenAI API key |
 | `agentcode.geminiApiKey` | — | Google Gemini API key |
-| `agentcode.model` | `claude-sonnet-4-6` | Default model |
+| `agentcode.model` | `claude-sonnet-5` | Default model |
 | `agentcode.executablePath` | `agentcode` | Path to `agentcode` binary if not on PATH |
 | `agentcode.inlineCompletions.enabled` | `true` | Enable inline completions |
-| `agentcode.inlineCompletions.endpoint` | — | Optional OpenAI-compatible `/v1` endpoint (e.g. `http://localhost:11434/v1` for Ollama) |
-| `agentcode.inlineCompletions.model` | — | Model name for the custom endpoint (e.g. `qwen2.5-coder:3b`) |
-| `agentcode.inlineCompletions.apiKey` | — | API key for the custom endpoint (blank for local Ollama) |
+| `agentcode.inlineCompletions.endpoint` | — | Optional OpenAI-compatible `/v1` endpoint (e.g. a vLLM server or HuggingFace Inference Endpoint) |
+| `agentcode.inlineCompletions.model` | — | Model name to request from the custom endpoint |
+| `agentcode.inlineCompletions.apiKey` | — | API key for the custom endpoint, if it requires one |
 
 Keys can also be set via environment variables or a `.env` file in your project root — VS Code settings take priority.
 

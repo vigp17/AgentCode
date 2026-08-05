@@ -1,10 +1,10 @@
 """
-Parse Hermes/Qwen-3-style XML tool calls into OpenAI-compatible tool_calls.
+Parse Hermes-style XML tool calls into OpenAI-compatible tool_calls.
 
-Some fine-tuned open-weight models (e.g. Vigp17/agentcode-27b) emit tool calls
-as inline XML in the assistant's text response instead of using the structured
-`tool_calls` field that litellm/OpenAI clients expect. This module detects that
-shape and converts it.
+Some fine-tuned open-weight models emit tool calls as inline XML in the
+assistant's text response instead of using the structured `tool_calls` field
+that litellm/OpenAI clients expect. This module detects that shape and
+converts it.
 
 Input shape we handle:
 
@@ -87,15 +87,26 @@ def parse_xml_tool_calls(text: str) -> tuple[str, list[dict]]:
     return cleaned, tool_calls
 
 
-# ── JSON-style tool calls (e.g. the AgentCode 3B) ─────────────────────────────
+# ── JSON-style tool calls (small open-weight fine-tunes) ──────────────────────
 # Smaller fine-tunes often emit a bare JSON object instead of the XML form:
 #     {"name": "git_status", "arguments": {}}
 # optionally wrapped in <tool_call>...</tool_call>. litellm doesn't pick these
 # up as structured tool_calls, so we detect and convert them too.
+#
+# Detection is deliberately conservative. An assistant *explaining* a tool call
+# ("you would call {"name": "run_command", ...}") must not trigger a real
+# execution, so a candidate is only accepted when it names a tool the agent
+# actually has and it isn't buried in prose or a fenced code block.
+
+# Longest lead-in ("Sure." / "Let me check.") we still treat as a real call.
+MAX_PREAMBLE_CHARS = 200
 
 
 def looks_like_json_tool_call(text: str) -> bool:
-    """Cheap check: a JSON object mentioning both name and arguments."""
+    """Cheap pre-filter: a JSON object mentioning both name and arguments.
+
+    Only a hint — parse_json_tool_calls applies the real gating.
+    """
     return '"name"' in text and '"arguments"' in text
 
 
@@ -130,15 +141,23 @@ def _extract_json_objects(text: str) -> list[str]:
     return objs
 
 
-def parse_json_tool_calls(text: str) -> tuple[str, list[dict]]:
+def parse_json_tool_calls(
+    text: str, valid_names: set[str] | None = None
+) -> tuple[str, list[dict]]:
     """
     Extract bare-JSON tool calls and return (cleaned_text, tool_calls).
 
     Handles {"name": ..., "arguments": {...}} objects, with or without
     surrounding <tool_call> tags. Returns the same accumulator shape as
     parse_xml_tool_calls.
+
+    valid_names, when given, restricts matches to tools the agent actually
+    has. Unwrapped candidates are additionally rejected when they sit inside
+    a fenced code block or a long block of prose — that shape means the model
+    is describing a tool call rather than making one.
     """
     cleaned = strip_think(text)
+    wrapped = "<tool_call>" in cleaned
     inner = cleaned.replace("<tool_call>", "").replace("</tool_call>", "")
 
     tool_calls: list[dict] = []
@@ -148,18 +167,31 @@ def parse_json_tool_calls(text: str) -> tuple[str, list[dict]]:
             obj = json.loads(cand)
         except (json.JSONDecodeError, ValueError):
             continue
-        if isinstance(obj, dict) and "name" in obj and "arguments" in obj:
-            args = obj["arguments"]
-            args_str = args if isinstance(args, str) else json.dumps(args)
-            tool_calls.append({
-                "id": f"call_{uuid.uuid4().hex[:8]}",
-                "name": obj["name"],
-                "arguments": args_str,
-            })
-            matched_spans.append(cand)
+        if not (isinstance(obj, dict) and "name" in obj and "arguments" in obj):
+            continue
+        if valid_names is not None and obj["name"] not in valid_names:
+            continue
+        args = obj["arguments"]
+        args_str = args if isinstance(args, str) else json.dumps(args)
+        tool_calls.append({
+            "id": f"call_{uuid.uuid4().hex[:8]}",
+            "name": obj["name"],
+            "arguments": args_str,
+        })
+        matched_spans.append(cand)
 
-    if tool_calls:
-        for span in matched_spans:
-            cleaned = cleaned.replace(span, "")
-        cleaned = cleaned.replace("<tool_call>", "").replace("</tool_call>", "").strip()
+    if not tool_calls:
+        return cleaned, []
+
+    residual = inner
+    for span in matched_spans:
+        residual = residual.replace(span, "")
+    residual = residual.strip()
+
+    if not wrapped and ("```" in residual or len(residual) > MAX_PREAMBLE_CHARS):
+        return cleaned, []
+
+    for span in matched_spans:
+        cleaned = cleaned.replace(span, "")
+    cleaned = cleaned.replace("<tool_call>", "").replace("</tool_call>", "").strip()
     return cleaned, tool_calls

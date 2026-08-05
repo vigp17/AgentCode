@@ -20,7 +20,7 @@ class PermissionsSettings:
 
 @dataclass
 class ModelSettings:
-    default: str = "claude-sonnet-4-6"
+    default: str = "claude-sonnet-5"
     routing: bool = True
     light: str | None = None
     medium: str | None = None
@@ -77,7 +77,7 @@ def _dict_to_settings(d: dict) -> "Settings":
             deny=list(perms_d.get("deny", [])),
         ),
         model=ModelSettings(
-            default=str(model_d.get("default", "claude-sonnet-4-6")),
+            default=str(model_d.get("default", "claude-sonnet-5")),
             routing=bool(model_d.get("routing", True)),
             light=model_d.get("light") or None,
             medium=model_d.get("medium") or None,
@@ -141,7 +141,7 @@ STARTER_SETTINGS: dict = {
         "deny": []
     },
     "model": {
-        "default": "claude-sonnet-4-6",
+        "default": "claude-sonnet-5",
         "routing": True,
         "light": None,
         "medium": None,
@@ -160,7 +160,7 @@ SETTINGS_HELP = """\
 permissions.auto_approve_all  true to skip all permission prompts (like --auto-approve)
 permissions.auto_approve      tools that run without asking (default: read-only tools)
 permissions.deny              tools that are always blocked, regardless of other settings
-model.default                 default LLM model string (e.g. "claude-sonnet-4-6")
+model.default                 default LLM model string (e.g. "claude-sonnet-5")
 model.routing                 enable cost-aware model routing (true/false)
 model.light/medium/heavy      override the model used for each routing tier
 limits.max_file_size          max bytes for read_file (default: 1,000,000)

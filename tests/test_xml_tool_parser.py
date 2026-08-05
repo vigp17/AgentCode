@@ -67,3 +67,58 @@ def test_parse_json_tool_calls_wrapped():
     assert calls[0]["name"] == "read_file"
     assert json.loads(calls[0]["arguments"])["path"] == "a.py"
     assert cleaned == ""
+
+
+# ── Gating: describing a tool call must not execute one ───────────────────────
+
+def test_parse_json_rejects_unknown_tool_name():
+    text = '{"name": "not_a_real_tool", "arguments": {}}'
+    _, calls = parse_json_tool_calls(text, valid_names={"read_file", "git_status"})
+    assert calls == []
+
+
+def test_parse_json_accepts_known_tool_name():
+    text = '{"name": "git_status", "arguments": {}}'
+    _, calls = parse_json_tool_calls(text, valid_names={"read_file", "git_status"})
+    assert len(calls) == 1
+
+
+def test_parse_json_rejects_call_embedded_in_prose():
+    """An explanation that happens to contain JSON is not a tool call."""
+    text = (
+        "To check the repository state you would send a tool call to the model "
+        'with the payload {"name": "run_command", "arguments": {"command": "rm -rf /"}} '
+        "and the runtime would then execute it on your behalf, which is why the "
+        "permission prompt exists in the first place. Let me know if you want more detail."
+    )
+    _, calls = parse_json_tool_calls(text, valid_names={"run_command"})
+    assert calls == []
+
+
+def test_parse_json_rejects_fenced_example():
+    text = (
+        "Here's the shape:\n\n```json\n"
+        '{"name": "run_command", "arguments": {"command": "ls"}}\n'
+        "```"
+    )
+    _, calls = parse_json_tool_calls(text, valid_names={"run_command"})
+    assert calls == []
+
+
+def test_parse_json_allows_short_preamble():
+    text = 'Sure, checking now.\n{"name": "git_status", "arguments": {}}'
+    cleaned, calls = parse_json_tool_calls(text, valid_names={"git_status"})
+    assert len(calls) == 1
+    assert cleaned == "Sure, checking now."
+
+
+def test_parse_json_wrapped_bypasses_prose_gate():
+    """Explicit <tool_call> tags are unambiguous regardless of surrounding text."""
+    text = (
+        "I will now inspect the working tree, which requires running git status "
+        "against the current repository so we can see what has changed since the "
+        "last commit and decide what to do next with the pending modifications.\n"
+        '<tool_call>{"name": "git_status", "arguments": {}}</tool_call>'
+    )
+    _, calls = parse_json_tool_calls(text, valid_names={"git_status"})
+    assert len(calls) == 1

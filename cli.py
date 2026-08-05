@@ -9,7 +9,7 @@ Usage:
     agentcode --no-route         # Disable cost-aware routing
 
 Supported models (via LiteLLM):
-    claude-sonnet-4-6            # Anthropic Claude (default)
+    claude-sonnet-5              # Anthropic Claude (default)
     gpt-4o                       # OpenAI
     gemini/gemini-2.5-pro        # Google
     ... and 100+ more: https://docs.litellm.ai/docs/providers
@@ -31,7 +31,7 @@ from agent import (
     AgentConfig, Conversation, run_agent_loop,
     load_project_config, build_system_prompt,
 )
-from router import ModelRouter
+from router import ModelRouter, model_pricing, is_known_model, list_registry_models
 from mcp_client import create_mcp_manager
 from settings import (
     load_settings, generate_starter_settings, settings_sources, SETTINGS_HELP,
@@ -63,7 +63,8 @@ BANNER = r"""
 
 def show_banner(config: AgentConfig, project_config: dict | None = None):
     console.print(Text(BANNER, style="bold cyan"))
-    console.print(f"  [dim]Model:[/dim]  [bold]{config.model}[/bold]")
+    unknown = "" if is_known_model(config.model) else " [yellow](unrecognized — costs unavailable)[/yellow]"
+    console.print(f"  [dim]Model:[/dim]  [bold]{config.model}[/bold]{unknown}")
     console.print(f"  [dim]Dir:[/dim]    [bold]{config.project_dir}[/bold]")
     console.print(f"  [dim]Safety:[/dim] [bold]{'auto-approve' if config.auto_approve else 'ask before write/exec'}[/bold]")
 
@@ -94,6 +95,7 @@ def show_banner(config: AgentConfig, project_config: dict | None = None):
     console.print()
     console.print("  [dim]Type your request, or:[/dim]")
     console.print("  [dim]  /model <name>  — switch model (disables routing)[/dim]")
+    console.print("  [dim]  /models [f]    — browse available models and prices[/dim]")
     console.print("  [dim]  /route         — show/toggle routing[/dim]")
     console.print("  [dim]  /cost          — show session cost breakdown[/dim]")
     console.print("  [dim]  /mcp           — manage MCP server connections[/dim]")
@@ -152,12 +154,18 @@ def handle_slash_command(
             if config.router:
                 config.router.enabled = False
                 config.router.default_model = arg
-                config.router.provider = config.router.detect_provider(arg)
+                config.router.provider = ModelRouter.detect_provider(arg)
             console.print(f"[success]✓ Switched to model: {arg} (routing disabled)[/success]")
+            if not is_known_model(arg):
+                console.print(
+                    "[warning]  ⚠ Not in litellm's model registry — check the spelling, "
+                    "or run `pip install -U litellm` if it's newly released. "
+                    "Costs will show as $0.00.[/warning]"
+                )
         else:
             console.print(f"[info]Current model: {config.model}[/info]")
             console.print("[dim]Usage: /model <model_name>[/dim]")
-            console.print("[dim]Examples: claude-sonnet-4-6, gpt-4o, ollama/llama3[/dim]")
+            console.print("[dim]Examples: claude-sonnet-5, gpt-5.6-terra, gemini/gemini-3.6-flash[/dim]")
         return True
 
     elif command == "/route":
@@ -172,11 +180,17 @@ def handle_slash_command(
             console.print(f"  Routing: {status}")
             console.print(f"  Provider: [bold]{config.router.provider}[/bold]")
             for tier in config.router.get_tiers():
-                console.print(
-                    f"  [dim]{tier.tier:6}[/dim]  [bold]{tier.name}[/bold]"
-                    f"  [dim](${tier.input_cost_per_mtok:.2f}/${tier.output_cost_per_mtok:.2f} per 1M tok)[/dim]"
+                pricing = model_pricing(tier.name)
+                cost = (
+                    f"  [dim](${pricing[0]:.2f}/${pricing[1]:.2f} per 1M tok)[/dim]"
+                    if pricing else "  [dim](pricing unavailable)[/dim]"
                 )
+                console.print(f"  [dim]{tier.tier:6}[/dim]  [bold]{tier.name}[/bold]{cost}")
             console.print("[dim]  Usage: /route on | /route off[/dim]")
+        return True
+
+    elif command == "/models":
+        _show_models(arg.strip())
         return True
 
     elif command == "/cost":
@@ -213,6 +227,32 @@ def handle_slash_command(
         return True
 
     return False
+
+
+# ── /models display ──────────────────────────────────────────────────────────
+
+def _show_models(query: str) -> None:
+    """List chat models litellm can route to and price, cheapest first."""
+    rows = list_registry_models(query, limit=30)
+    if not rows:
+        if query:
+            console.print(f"[warning]No models matching '{query}'.[/warning]")
+            console.print("[dim]  Try: /models claude | /models gpt | /models gemini[/dim]")
+        else:
+            console.print("[warning]Model registry unavailable (is litellm installed?).[/warning]")
+        return
+
+    console.print(f"  [dim]{'model':<40}{'$ / 1M in':>11}{'$ / 1M out':>12}[/dim]")
+    for name, inp, out in rows:
+        shown = name if len(name) <= 40 else name[:37] + "..."
+        console.print(
+            f"  [bold]{shown:<40}[/bold]{inp:>11.2f}{out:>12.2f}", overflow="ellipsis"
+        )
+    console.print(
+        "\n[dim]  From litellm's model registry — "
+        "`pip install -U litellm` picks up newly released models.[/dim]"
+    )
+    console.print("[dim]  Usage: /models <filter>   then: /model <name>[/dim]")
 
 
 # ── /settings display ────────────────────────────────────────────────────────
@@ -309,6 +349,33 @@ def _save_mcp_config_file(project_dir: str, data: dict) -> None:
     path = Path(project_dir) / ".agentcode" / "mcp.json"
     path.parent.mkdir(exist_ok=True)
     path.write_text(json.dumps(data, indent=2))
+    # mcp.json holds tokens in plaintext — keep it out of the user's history.
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+
+
+def _ensure_agentcode_gitignored(project_dir: str) -> bool:
+    """Add .agentcode/ to .gitignore so stored MCP tokens aren't committed.
+
+    Returns True if the entry was added. No-op outside a git repo.
+    """
+    from pathlib import Path
+    root = Path(project_dir)
+    if not (root / ".git").exists():
+        return False
+
+    gitignore = root / ".gitignore"
+    existing = gitignore.read_text() if gitignore.exists() else ""
+    if any(line.strip().rstrip("/") == ".agentcode" for line in existing.splitlines()):
+        return False
+
+    prefix = "" if (not existing or existing.endswith("\n")) else "\n"
+    gitignore.write_text(
+        existing + prefix + "\n# AgentCode local config (may contain MCP tokens)\n.agentcode/\n"
+    )
+    return True
 
 
 def handle_mcp_command(arg: str, config: AgentConfig) -> None:
@@ -319,8 +386,8 @@ def handle_mcp_command(arg: str, config: AgentConfig) -> None:
     if sub == "list":
         if config.mcp_manager and config.mcp_manager.server_names():
             for server in config.mcp_manager.server_names():
-                tool_count = len([k for k in config.mcp_manager._tool_map if k.startswith(f"mcp__{server}__")])
-                console.print(f"  [bold green]✓[/bold green] [bold]{server}[/bold] ({tool_count} tools)")
+                count = config.mcp_manager.tool_count(server)
+                console.print(f"  [bold green]✓[/bold green] [bold]{server}[/bold] ({count} tools)")
         else:
             console.print("[dim]No MCP servers connected. Use /mcp add <server> to connect one.[/dim]")
             console.print(f"[dim]Available presets: {', '.join(MCP_PRESETS.keys())}[/dim]")
@@ -341,6 +408,10 @@ def handle_mcp_command(arg: str, config: AgentConfig) -> None:
         # Prompt for required env vars
         if preset["env_prompts"]:
             server_config["env"] = {}
+            console.print(
+                "[warning]  Note: credentials are stored in plaintext in "
+                ".agentcode/mcp.json[/warning]"
+            )
             for var, prompt in preset["env_prompts"].items():
                 try:
                     value = console.input(f"  [bold]{prompt}:[/bold] ").strip()
@@ -352,19 +423,23 @@ def handle_mcp_command(arg: str, config: AgentConfig) -> None:
                     return
                 server_config["env"][var] = value
 
-        # Save to config file
+        # Save to config file, keeping it out of version control
+        if _ensure_agentcode_gitignored(config.project_dir):
+            console.print("[dim]  Added .agentcode/ to .gitignore[/dim]")
         data = _load_mcp_config_file(config.project_dir)
         data["mcpServers"][name] = server_config
         _save_mcp_config_file(config.project_dir, data)
 
         # Hot-connect without restart
+        import atexit
         from mcp_client import MCPManager
         if config.mcp_manager is None:
             config.mcp_manager = MCPManager()
+            atexit.register(config.mcp_manager.shutdown)
         try:
             config.mcp_manager.connect(name, server_config)
-            tool_count = len([k for k in config.mcp_manager._tool_map if k.startswith(f"mcp__{name}__")])
-            console.print(f"[success]✓ Connected to {name} ({tool_count} tools available)[/success]")
+            count = config.mcp_manager.tool_count(name)
+            console.print(f"[success]✓ Connected to {name} ({count} tools available)[/success]")
         except Exception as e:
             console.print(f"[error]Failed to connect to {name}: {e}[/error]")
             # Roll back config
@@ -386,10 +461,7 @@ def handle_mcp_command(arg: str, config: AgentConfig) -> None:
 
         # Remove from running manager
         if config.mcp_manager:
-            keys_to_remove = [k for k in config.mcp_manager._tool_map if k.startswith(f"mcp__{name}__")]
-            for k in keys_to_remove:
-                config.mcp_manager._tool_map.pop(k)
-            config.mcp_manager._servers.pop(name, None)
+            config.mcp_manager.disconnect(name)
 
         console.print(f"[success]✓ Removed {name}[/success]")
 
@@ -602,10 +674,8 @@ def main():
     routing_enabled = settings.model.routing  # already patched by cli_overrides if --no-route
 
     # Build router
-    temp_router = ModelRouter(default_model=model)
-    provider = temp_router.detect_provider(model)
     router = ModelRouter(
-        provider=provider,
+        provider=ModelRouter.detect_provider(model),
         default_model=model,
         enabled=routing_enabled,
     )

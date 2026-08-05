@@ -10,8 +10,9 @@ import os
 import json
 import subprocess
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import litellm
@@ -54,7 +55,7 @@ Guidelines:
 
 @dataclass
 class AgentConfig:
-    model: str = "claude-sonnet-4-6"
+    model: str = "claude-sonnet-5"
     auto_approve: bool = False
     project_dir: str = field(default_factory=os.getcwd)
     max_iterations: int = field(
@@ -63,6 +64,15 @@ class AgentConfig:
     router: ModelRouter | None = None
     mcp_manager: MCPManager | None = None
     settings: Settings | None = None
+    # How the user is asked to approve a tool call. Defaults to the terminal
+    # prompt; server mode injects a stdio-based one so subagents don't read
+    # from the same stdin the JSON protocol is using.
+    permission_cb: Callable[[str, dict], bool] | None = None
+    # Current nesting level; subagents run at parent depth + 1.
+    subagent_depth: int = 0
+    max_subagent_depth: int = field(
+        default_factory=lambda: int(os.environ.get("AGENTCODE_MAX_SUBAGENT_DEPTH", "1"))
+    )
 
 
 # ── Conversation ──────────────────────────────────────────────────────────────
@@ -92,6 +102,17 @@ class Conversation:
         if path.exists():
             self.messages = json.loads(path.read_text())
 
+    def _safe_split(self, index: int) -> int:
+        """Move a split point forward past any leading tool results.
+
+        A 'tool' message is only valid when the assistant turn that requested
+        it is still in history. Slicing blindly can drop that assistant turn
+        and leave dangling tool results, which providers reject with a 400.
+        """
+        while index < len(self.messages) and self.messages[index].get("role") == "tool":
+            index += 1
+        return index
+
     def compact(self, max_tokens: int = 80_000, model: str | None = None):
         """Summarize old messages to reduce context. Falls back to dropping if no model given."""
         if not self.messages:
@@ -103,8 +124,14 @@ class Conversation:
         if len(self.messages) <= keep:
             return
 
-        to_summarize = self.messages[:-keep]
-        recent = self.messages[-keep:]
+        split = self._safe_split(len(self.messages) - keep)
+        # Everything after the split is tool results — compacting here would
+        # orphan them. Wait for the next assistant turn.
+        if split <= 0 or split >= len(self.messages):
+            return
+
+        to_summarize = self.messages[:split]
+        recent = self.messages[split:]
         summary = self._summarize(to_summarize, model) if model else (
             f"[{len(to_summarize)} earlier messages were compacted to save context.]"
         )
@@ -177,7 +204,9 @@ def _ask_permission(tool_name: str, args: dict) -> bool:
     console.print(f"\n[bold yellow]⚡ Tool request:[/bold yellow] [bold]{tool_name}[/bold]")
     for key, val in args.items():
         val_str = str(val)
-        if len(val_str) > 300:
+        # Never truncate the command itself — the dangerous part is often at
+        # the end, and the user is approving this exact string.
+        if key != "command" and len(val_str) > 300:
             val_str = val_str[:300] + "..."
         console.print(f"   [dim]{key}:[/dim] {val_str}")
     try:
@@ -187,20 +216,29 @@ def _ask_permission(tool_name: str, args: dict) -> bool:
         return False
 
 
+# Serializes permission prompts. Subagents run in parallel threads and would
+# otherwise race for stdin (CLI) or interleave requests on the JSON protocol
+# (server mode).
+_permission_lock = threading.Lock()
+
+
+def _request_permission(tool_name: str, args: dict, config: "AgentConfig") -> bool:
+    """Ask the user for approval through the configured prompt, one at a time."""
+    ask = config.permission_cb or _ask_permission
+    with _permission_lock:
+        return ask(tool_name, args)
+
+
 # ── Permission helpers ────────────────────────────────────────────────────────
-
-def _is_denied(tool_name: str, config: "AgentConfig") -> bool:
-    """Return True if the tool is explicitly blocked by settings."""
-    return bool(config.settings and tool_name in config.settings.permissions.deny)
-
 
 def _get_permission(tool_name: str, config: "AgentConfig") -> str:
     """
-    Return 'allow', 'deny', or 'ask' for a built-in tool call.
+    Return 'allow', 'deny', or 'ask' for a tool call.
 
     Priority:
       deny list → auto_approve_all (CLI or settings) → auto_approve list → ask
     Falls back to the old WRITE_TOOLS behaviour when no settings are loaded.
+    MCP tools are never on the default auto-approve list, so they ask.
     """
     s = config.settings
 
@@ -213,8 +251,61 @@ def _get_permission(tool_name: str, config: "AgentConfig") -> str:
     if s:
         return "allow" if tool_name in s.permissions.auto_approve else "ask"
 
-    # Backward-compat fallback: WRITE_TOOLS ask, everything else auto
-    return "ask" if tool_name in WRITE_TOOLS else "allow"
+    # Backward-compat fallback: write tools and MCP tools ask, everything else auto
+    if tool_name in WRITE_TOOLS or tool_name.startswith("mcp__"):
+        return "ask"
+    return "allow"
+
+
+# ── Tool dispatch ─────────────────────────────────────────────────────────────
+
+def _dispatch_tool(tool_name: str, args: dict, config: "AgentConfig", silent: bool) -> str:
+    """Resolve permissions and run one tool call — built-in, MCP, or subagent."""
+    perm = _get_permission(tool_name, config)
+    if perm == "deny":
+        return f"Tool '{tool_name}' is blocked by settings (permissions.deny)."
+    if perm == "ask" and not _request_permission(tool_name, args, config):
+        return f"Tool '{tool_name}' denied by user."
+
+    if tool_name == "spawn_subagents":
+        return _run_subagents(args.get("tasks", []), config, silent)
+
+    mcp = config.mcp_manager
+    if mcp and mcp.is_mcp_tool(tool_name):
+        return mcp.call_tool(tool_name, args)
+
+    return execute_tool(tool_name, args)
+
+
+# ── Cost accounting ───────────────────────────────────────────────────────────
+
+def _record_cost(router: ModelRouter, model: str, usage) -> None:
+    """Record token usage and cost for one API call.
+
+    litellm.completion_cost() takes no prompt_tokens/completion_tokens
+    arguments, so price from the router's own tier table first and only fall
+    back to litellm for models we don't have pricing for.
+    """
+    prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+    completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+
+    cost = router.estimate_cost(model, prompt_tokens, completion_tokens)
+    if cost == 0.0:
+        try:
+            cost = litellm.completion_cost(
+                completion_response={
+                    "model": model,
+                    "usage": {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": prompt_tokens + completion_tokens,
+                    },
+                }
+            )
+        except Exception:
+            cost = 0.0
+
+    router.cost_tracker.record(model, prompt_tokens, completion_tokens, cost)
 
 
 # ── Subagents ─────────────────────────────────────────────────────────────────
@@ -227,6 +318,16 @@ def _run_subagents(tasks: list[str], config: AgentConfig, parent_silent: bool = 
     if not tasks:
         return "Error: no tasks provided."
 
+    # Subagents inherit the full tool set, including spawn_subagents. Without a
+    # depth cap a single call can fan out to 5^n threads.
+    if config.subagent_depth >= config.max_subagent_depth:
+        return (
+            f"Error: subagent depth limit reached (max_subagent_depth="
+            f"{config.max_subagent_depth}). Complete this task directly "
+            "instead of delegating further."
+        )
+
+    child_config = replace(config, subagent_depth=config.subagent_depth + 1)
     max_workers = min(len(tasks), 5)
     results: dict[int, str] = {}
 
@@ -235,7 +336,7 @@ def _run_subagents(tasks: list[str], config: AgentConfig, parent_silent: bool = 
 
     def run_one(idx: int, task: str) -> tuple[int, str]:
         sub_conv = Conversation(system=build_system_prompt(config.project_dir))
-        result = run_agent_loop(task, sub_conv, config, silent=True)
+        result = run_agent_loop(task, sub_conv, child_config, silent=True)
         if not parent_silent:
             with _print_lock:
                 console.print(f"  [dim]✓ Subagent {idx + 1}/{len(tasks)} done[/dim]")
@@ -283,6 +384,7 @@ def run_agent_loop(
 
     mcp = config.mcp_manager
     all_tools = TOOL_DEFINITIONS + (mcp.get_tool_definitions() if mcp else [])
+    tool_names = {t["function"]["name"] for t in all_tools}
 
     for _ in range(config.max_iterations):
         stream = litellm.completion(
@@ -336,29 +438,16 @@ def run_agent_loop(
 
         # Record cost from usage in final chunk
         if router and usage:
-            try:
-                cost = litellm.completion_cost(
-                    model=model,
-                    prompt_tokens=usage.prompt_tokens or 0,
-                    completion_tokens=usage.completion_tokens or 0,
-                )
-            except Exception:
-                cost = 0.0
-            router.cost_tracker.record(
-                model,
-                usage.prompt_tokens or 0,
-                usage.completion_tokens or 0,
-                cost,
-            )
+            _record_cost(router, model, usage)
 
-        # Open-weight fine-tunes emit tool calls in the text response: the 27B
-        # uses XML (<function=...>), the 3B uses bare JSON. Detect and convert
-        # before treating this as a pure text turn.
+        # Open-weight fine-tunes emit tool calls in the text response: some use
+        # XML (<function=...>), others bare JSON. Detect and convert before
+        # treating this as a pure text turn.
         if not tool_calls_accum:
             if looks_like_xml_tool_call(full_text):
                 cleaned, parsed = parse_xml_tool_calls(full_text)
             elif looks_like_json_tool_call(full_text):
-                cleaned, parsed = parse_json_tool_calls(full_text)
+                cleaned, parsed = parse_json_tool_calls(full_text, tool_names)
             else:
                 cleaned, parsed = strip_think(full_text), []
             full_text = cleaned
@@ -396,25 +485,7 @@ def run_agent_loop(
             if pre_hook:
                 _run_hook(pre_hook, tool_name, args)
 
-            if tool_name == "spawn_subagents":
-                if _is_denied(tool_name, config):
-                    result = f"Tool '{tool_name}' is blocked by settings (permissions.deny)."
-                else:
-                    result = _run_subagents(args.get("tasks", []), config, silent)
-            elif mcp and mcp.is_mcp_tool(tool_name):
-                if _is_denied(tool_name, config):
-                    result = f"Tool '{tool_name}' is blocked by settings (permissions.deny)."
-                else:
-                    result = mcp.call_tool(tool_name, args)
-            else:
-                perm = _get_permission(tool_name, config)
-                if perm == "deny":
-                    result = f"Tool '{tool_name}' is blocked by settings (permissions.deny)."
-                elif perm == "ask":
-                    approved = _ask_permission(tool_name, args)
-                    result = execute_tool(tool_name, args) if approved else f"Tool '{tool_name}' denied by user."
-                else:
-                    result = execute_tool(tool_name, args)
+            result = _dispatch_tool(tool_name, args, config, silent)
 
             post_hook = hooks.get(f"post_{tool_name}") or hooks.get("post_tool")
             if post_hook:

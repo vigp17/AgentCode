@@ -125,29 +125,26 @@ export class AgentPanel implements vscode.Disposable {
 <body>
   <div id="header">
     <div id="model-picker">
-      <span id="model-label">▾ claude-sonnet-4-6</span>
+      <span id="model-label">▾ claude-sonnet-5</span>
       <div id="model-dropdown">
         <div class="model-group">
           <div class="model-group-label">Claude</div>
-          <div class="model-option" data-model="claude-sonnet-4-6">Sonnet 4.6</div>
-          <div class="model-option" data-model="claude-opus-4-8">Opus 4.8</div>
+          <div class="model-option" data-model="claude-sonnet-5">Sonnet 5</div>
+          <div class="model-option" data-model="claude-opus-5">Opus 5</div>
           <div class="model-option" data-model="claude-fable-5">Fable 5</div>
-          <div class="model-option" data-model="claude-haiku-4-5-20251001">Haiku 4.5</div>
+          <div class="model-option" data-model="claude-haiku-4-5">Haiku 4.5</div>
         </div>
         <div class="model-group">
           <div class="model-group-label">GPT</div>
-          <div class="model-option" data-model="gpt-5.5">GPT-5.5</div>
-          <div class="model-option" data-model="gpt-4o">GPT-4o</div>
-          <div class="model-option" data-model="gpt-4o-mini">GPT-4o Mini</div>
+          <div class="model-option" data-model="gpt-5.6-sol">GPT-5.6 Sol</div>
+          <div class="model-option" data-model="gpt-5.6-terra">GPT-5.6 Terra</div>
+          <div class="model-option" data-model="gpt-5.6-luna">GPT-5.6 Luna</div>
         </div>
         <div class="model-group">
           <div class="model-group-label">Gemini</div>
-          <div class="model-option" data-model="gemini/gemini-2.5-pro">Gemini 2.5 Pro</div>
-          <div class="model-option" data-model="gemini/gemini-2.5-flash">Gemini 2.5 Flash</div>
-        </div>
-        <div class="model-group">
-          <div class="model-group-label">Local (Ollama)</div>
-          <div class="model-option" data-model="ollama/agentcode-27b">AgentCode 27B</div>
+          <div class="model-option" data-model="gemini/gemini-3.1-pro-preview">Gemini 3.1 Pro</div>
+          <div class="model-option" data-model="gemini/gemini-3.6-flash">Gemini 3.6 Flash</div>
+          <div class="model-option" data-model="gemini/gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</div>
         </div>
       </div>
     </div>

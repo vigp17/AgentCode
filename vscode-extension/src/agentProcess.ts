@@ -23,7 +23,7 @@ export class AgentProcess {
   start(workspaceDir: string, modelOverride?: string): void {
     const cfg = vscode.workspace.getConfiguration("agentcode");
     const execPath = cfg.get<string>("executablePath", "agentcode");
-    const model = modelOverride ?? cfg.get<string>("model", "claude-sonnet-4-6");
+    const model = modelOverride ?? cfg.get<string>("model", "claude-sonnet-5");
 
     const dotenvVars = loadWorkspaceEnv();
     // Only inject keys that are actually resolved — passing an empty string would

@@ -12,9 +12,13 @@ export class InlineCompletionProvider
   implements vscode.InlineCompletionItemProvider
 {
   private debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  private pendingResolve:
+    | ((value: vscode.InlineCompletionList | undefined) => void)
+    | undefined;
   private readonly cache = new Map<string, CacheEntry>();
   private readonly CACHE_SIZE = 20;
   private readonly DEBOUNCE_MS = 300;
+  private readonly REQUEST_TIMEOUT_MS = 10_000;
 
   constructor(private readonly statusBar: vscode.StatusBarItem) {}
 
@@ -59,11 +63,18 @@ export class InlineCompletionProvider
       return { items: [new vscode.InlineCompletionItem(cached.completion)] };
     }
 
+    // Settle the superseded request before dropping its timer. VS Code awaits
+    // every promise we hand back, so clearing the timeout alone leaks one
+    // pending promise per keystroke.
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    this.pendingResolve?.(undefined);
+    this.pendingResolve = undefined;
 
     return new Promise((resolve) => {
+      this.pendingResolve = resolve;
       this.debounceTimer = setTimeout(async () => {
         if (token.isCancellationRequested) {
+          this.pendingResolve = undefined;
           resolve(undefined);
           return;
         }
@@ -92,6 +103,7 @@ export class InlineCompletionProvider
           resolve(undefined);
         } finally {
           this.statusBar.hide();
+          this.pendingResolve = undefined;
         }
       }, this.DEBOUNCE_MS);
     });
@@ -114,7 +126,7 @@ export class InlineCompletionProvider
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const body = JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
+        model: "claude-haiku-4-5",
         max_tokens: 100,
         system:
           "You are a code completion engine. Output only the completion text with no explanation, no markdown fences, and no surrounding quotes. Single line only.",
@@ -158,15 +170,16 @@ export class InlineCompletionProvider
       );
 
       req.on("error", reject);
-      token.onCancellationRequested(() => { req.destroy(); resolve(""); });
+      req.setTimeout(this.REQUEST_TIMEOUT_MS, () => { req.destroy(); resolve(""); });
+      const cancelSub = token.onCancellationRequested(() => { req.destroy(); resolve(""); });
+      req.on("close", () => cancelSub.dispose());
       req.write(body);
       req.end();
     });
   }
 
-  // OpenAI-compatible endpoint: works with Ollama (localhost:11434/v1),
-  // HF Inference Endpoints, vLLM, TGI, or any /v1/chat/completions server.
-  // Works with any small local coding model (e.g. qwen2.5-coder:3b via Ollama).
+  // OpenAI-compatible endpoint: works with HF Inference Endpoints, vLLM, TGI,
+  // or any /v1/chat/completions server.
   private fetchFromCustomEndpoint(
     prefix: string,
     suffix: string,
@@ -232,7 +245,9 @@ export class InlineCompletionProvider
       );
 
       req.on("error", reject);
-      token.onCancellationRequested(() => { req.destroy(); resolve(""); });
+      req.setTimeout(this.REQUEST_TIMEOUT_MS, () => { req.destroy(); resolve(""); });
+      const cancelSub = token.onCancellationRequested(() => { req.destroy(); resolve(""); });
+      req.on("close", () => cancelSub.dispose());
       req.write(body);
       req.end();
     });
@@ -240,5 +255,7 @@ export class InlineCompletionProvider
 
   dispose(): void {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    this.pendingResolve?.(undefined);
+    this.pendingResolve = undefined;
   }
 }
