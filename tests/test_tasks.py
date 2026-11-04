@@ -35,8 +35,9 @@ def test_generate_data_resumes(tmp_path, monkeypatch):
     tasks = tmp_path / "t.jsonl"
     tasks.write_text("\n".join(json.dumps({"repo": "r", "task": f"task {i}"}) for i in range(5)))
     ran = []
-    monkeypatch.setattr(generate_data, "run_task", lambda t, *a: ran.append(t["task"]) or True)
-    argv = ["generate_data.py", "--tasks", str(tasks), "--teacher", "x", "--out", str(tmp_path / "o")]
+    monkeypatch.setattr(generate_data, "run_task", lambda t, *a: (ran.append(t["task"]), (True, ""))[1])
+    argv = ["generate_data.py", "--tasks", str(tasks), "--teacher", "x", "--out", str(tmp_path / "o"),
+            "--skip-check"]
 
     monkeypatch.setattr(sys, "argv", argv + ["--limit", "2"])
     generate_data.main()
@@ -45,3 +46,32 @@ def test_generate_data_resumes(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", argv + ["--workers", "3"])
     generate_data.main()  # resumes: only the 3 not yet done
     assert len(ran) == 5 and len(set(ran)) == 5
+
+
+def test_failed_tasks_are_logged_and_retried(tmp_path, monkeypatch):
+    tasks = tmp_path / "t.jsonl"
+    tasks.write_text(json.dumps({"repo": "r", "task": "flaky"}))
+    out = tmp_path / "o"
+    argv = ["generate_data.py", "--tasks", str(tasks), "--teacher", "x", "--out", str(out), "--skip-check"]
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(generate_data, "run_task",
+                        lambda *a: (False, "--- stderr ---\nAuthenticationError: invalid key"))
+    generate_data.main()
+    logs = list((out / "logs").glob("*.log"))
+    assert len(logs) == 1 and "invalid key" in logs[0].read_text()
+    assert not (out / "done.txt").exists()          # not marked done → retried next run
+    assert generate_data.last_error("x\nAuthenticationError: invalid key\n") == \
+        "AuthenticationError: invalid key"
+
+
+def test_teacher_check_stops_early(monkeypatch):
+    import litellm
+    def boom(**kw):
+        raise RuntimeError("OpenrouterException - User not found.")
+    monkeypatch.setattr(litellm, "completion", boom)
+    try:
+        generate_data.check_teacher("openrouter/x")
+    except SystemExit as e:
+        assert "User not found" in str(e) and "OPENROUTER_API_KEY" in str(e)
+    else:
+        raise AssertionError("expected SystemExit")

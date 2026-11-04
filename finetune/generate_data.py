@@ -8,7 +8,8 @@ Bootstrap training data by running AgentCode itself on a list of tasks.
 finetune/tasks.jsonl (~400 tasks, from make_tasks.py) is the full set;
 tasks.example.jsonl is a 13-task sample for a quick trial. Finished tasks
 are recorded in <out>/done.txt, so re-running the same command resumes
-where it stopped (Ctrl-C, crash, laptop sleep).
+where it stopped (Ctrl-C, crash, laptop sleep); failed tasks are retried.
+Each failed task's output is saved to <out>/logs/<id>.log.
 
 Each line of the tasks file is {"repo": "<path or git URL>", "task": "<prompt>"}.
 For every task the repo is copied into a throwaway directory, AgentCode runs
@@ -54,7 +55,34 @@ def checkout(repo: str, dest: Path) -> None:
                         ignore=shutil.ignore_patterns(".agentcode*", "node_modules", ".venv"))
 
 
-def run_task(task: dict, teacher: str, out_dir: Path, timeout: int, max_iter: int) -> bool:
+def last_error(text: str) -> str:
+    """The most informative line of a failed run's output."""
+    lines = [ln.strip() for ln in text.strip().splitlines() if ln.strip()]
+    for ln in reversed(lines):
+        if any(k in ln for k in ("Error", "Exception", "error:", "Forbidden", "Unauthorized",
+                                 "credits", "not found", "Timeout")):
+            return ln[:300]
+    return lines[-1][:300] if lines else "no output"
+
+
+def check_teacher(teacher: str) -> None:
+    """One tiny request before running hundreds of tasks: fail fast on a bad
+    key, wrong model name or empty balance, with the provider's own message."""
+    try:
+        import litellm
+        litellm.completion(model=teacher, messages=[{"role": "user", "content": "Say OK."}],
+                           max_tokens=5)
+    except Exception as e:
+        msg = str(e).strip().splitlines()[0][:400] if str(e).strip() else type(e).__name__
+        raise SystemExit(
+            f"Teacher check failed for '{teacher}':\n  {msg}\n\n"
+            "Common causes: API key missing or wrong (is OPENROUTER_API_KEY passed into the\n"
+            "container?), no credits on the account, or a typo in the model name."
+        )
+    print(f"Teacher OK: {teacher}")
+
+
+def run_task(task: dict, teacher: str, out_dir: Path, timeout: int, max_iter: int) -> tuple[bool, str]:
     repo, prompt = task["repo"], task["task"]
     with tempfile.TemporaryDirectory(prefix="agentcode-gen-") as tmp:
         work = Path(tmp) / "repo"
@@ -74,9 +102,12 @@ def run_task(task: dict, teacher: str, out_dir: Path, timeout: int, max_iter: in
                "--model", teacher, "--dir", str(work), prompt]
         try:
             r = subprocess.run(cmd, env=env, timeout=timeout, capture_output=True, text=True)
-            return r.returncode == 0
         except subprocess.TimeoutExpired:
-            return False
+            return False, f"timed out after {timeout}s"
+        output = f"$ {' '.join(cmd[:6])} ...\n--- stdout ---\n{r.stdout}\n--- stderr ---\n{r.stderr}"
+        if r.returncode == 0:
+            return True, output
+        return False, output
 
 
 def main() -> None:
@@ -88,7 +119,10 @@ def main() -> None:
     ap.add_argument("--max-iterations", type=int, default=40)
     ap.add_argument("--workers", type=int, default=1, help="tasks run in parallel")
     ap.add_argument("--limit", type=int, help="only run the first N pending tasks (trial run)")
+    ap.add_argument("--skip-check", action="store_true", help="don't test the teacher first")
     args = ap.parse_args()
+    if not args.skip_check:
+        check_teacher(args.teacher)
 
     args.out.mkdir(parents=True, exist_ok=True)
     tasks = [json.loads(line) for line in args.tasks.open() if line.strip()]
@@ -102,27 +136,33 @@ def main() -> None:
     lock = threading.Lock()
     ok = 0
 
-    def one(task: dict) -> bool:
-        good = run_task(task, args.teacher, args.out.resolve(), args.timeout, args.max_iterations)
-        with lock:
-            # Failed tasks are recorded too: re-running them rarely helps, and a
-            # resumed run should move on. Delete done.txt to retry everything.
-            with done_file.open("a") as f:
+    log_dir = args.out / "logs"
+
+    def one(task: dict) -> tuple[bool, str]:
+        good, output = run_task(task, args.teacher, args.out.resolve(), args.timeout,
+                                args.max_iterations)
+        if good:
+            with lock, done_file.open("a") as f:
                 f.write(task_id(task) + "\n")
-        return good
+            return True, ""
+        # Failures aren't marked done, so the next run retries them.
+        log_dir.mkdir(exist_ok=True)
+        (log_dir / f"{task_id(task)}.log").write_text(f"{task['repo']}\n{task['task']}\n\n{output}")
+        return False, last_error(output)
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
         futures = {pool.submit(one, t): t for t in pending}
         for i, fut in enumerate(as_completed(futures), 1):
             task = futures[fut]
             try:
-                good = fut.result()
+                good, why = fut.result()
             except Exception as e:  # clone failure etc. — keep going
-                good = False
-                print(f"   ! {type(e).__name__}: {str(e)[:100]}")
+                good, why = False, f"{type(e).__name__}: {str(e)[:200]}"
             ok += good
             print(f"[{i}/{len(pending)}] {'✓' if good else '✗'} "
                   f"[{task.get('category', '?')}] {task['task'][:64]}")
+            if not good:
+                print(f"      ↳ {why}   (log: {log_dir / (task_id(task) + '.log')})")
     print(f"\n{ok}/{len(pending)} tasks finished. Trajectories in {args.out}")
     print(f"Next: python finetune/prepare_data.py --input {args.out}")
 
