@@ -1,7 +1,7 @@
 import { spawn, ChildProcess } from "child_process";
 import * as readline from "readline";
 import * as vscode from "vscode";
-import { ServerMessage, ClientMessage } from "./protocol.js";
+import { ServerMessage, ClientMessage, Effort } from "./protocol.js";
 import { loadWorkspaceEnv, resolveKey } from "./envLoader.js";
 
 export type MessageHandler = (msg: ServerMessage) => void;
@@ -11,6 +11,10 @@ export class AgentProcess {
   private handlers: MessageHandler[] = [];
   private ready = false;
   private disposing = false;
+  // Last model/effort the user picked. Survives a backend restart (crash,
+  // settings change) so the panel doesn't silently fall back to the default.
+  private currentModel: string | undefined;
+  private currentEffort: Effort = "medium";
 
   onMessage(handler: MessageHandler): void {
     this.handlers.push(handler);
@@ -23,7 +27,8 @@ export class AgentProcess {
   start(workspaceDir: string, modelOverride?: string): void {
     const cfg = vscode.workspace.getConfiguration("agentcode");
     const execPath = cfg.get<string>("executablePath", "agentcode");
-    const model = modelOverride ?? cfg.get<string>("model", "claude-sonnet-5");
+    const model = modelOverride ?? this.currentModel ?? cfg.get<string>("model", "claude-sonnet-5");
+    this.currentModel = model;
 
     const dotenvVars = loadWorkspaceEnv();
     // Only inject keys that are actually resolved — passing an empty string would
@@ -50,7 +55,17 @@ export class AgentProcess {
       if (!line.trim()) return;
       try {
         const msg = JSON.parse(line) as ServerMessage;
-        if (msg.type === "ready") this.ready = true;
+        if (msg.type === "ready") {
+          this.ready = true;
+          // The CLI has no --effort flag; re-apply a non-default effort.
+          if (this.currentEffort !== "medium") {
+            this.send({ type: "set_effort", effort: this.currentEffort });
+          }
+        }
+        if (msg.type === "model_changed") {
+          this.currentModel = msg.model;
+          this.currentEffort = msg.effort;
+        }
         this.emit(msg);
       } catch {
         // non-JSON output from Python (e.g. tracebacks) — ignore
@@ -98,6 +113,17 @@ export class AgentProcess {
 
   sendPermissionResponse(approved: boolean): void {
     this.send({ type: "permission_response", approved });
+  }
+
+  /** Switch model in place: the backend keeps running and keeps the conversation. */
+  setModel(model: string): void {
+    this.currentModel = model;
+    this.send({ type: "set_model", model });
+  }
+
+  setEffort(effort: Effort): void {
+    this.currentEffort = effort;
+    this.send({ type: "set_effort", effort });
   }
 
   requestModels(refresh: boolean): void {

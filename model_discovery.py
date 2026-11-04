@@ -57,6 +57,11 @@ class DiscoveredModel:
     label: str                 # human-readable name
     created: float | None = None   # unix time, when the provider reports it
     source: str = "api"        # "api" | "registry" | "finetuned"
+    # In-house ecosystem metadata (defaults suit every provider model).
+    kind: str = "chat"         # "chat" | "image"
+    available: bool = True     # False = in-house model with no endpoint yet
+    supports_effort: bool = False
+    description: str = ""
 
 
 # ── Config helpers ────────────────────────────────────────────────────────────

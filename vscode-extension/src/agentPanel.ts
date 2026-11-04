@@ -76,10 +76,9 @@ export class AgentPanel implements vscode.Disposable {
     } else if (msg.type === "refresh_models") {
       this.agent.requestModels(true);
     } else if (msg.type === "set_model") {
-      const workspaceDir =
-        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
-      this.agent.dispose();
-      this.agent.start(workspaceDir, msg.model);
+      this.agent.setModel(msg.model);
+    } else if (msg.type === "set_effort") {
+      this.agent.setEffort(msg.effort);
     }
   }
 
@@ -125,21 +124,52 @@ export class AgentPanel implements vscode.Disposable {
   <title>AgentCode</title>
 </head>
 <body>
-  <div id="header">
+  <header id="header">
     <div id="model-picker">
-      <span id="model-label">▾ claude-sonnet-5</span>
-      <!-- Filled from the backend's "models" message (every model your API
-           keys can use, discovered live). The script holds a small fallback
-           list for before the first discovery result arrives. -->
-      <div id="model-dropdown"></div>
+      <button id="model-button" type="button" aria-haspopup="listbox" aria-expanded="false"
+              title="Switch model">
+        <span id="model-dot" class="dot"></span>
+        <span id="model-name">claude-sonnet-5</span>
+        <span class="chevron" aria-hidden="true">⌄</span>
+      </button>
+      <!-- Built by chat.js: the AgentCode lineup (axon-1, tandav-1, veda-1,
+           chitra-1) plus every frontier model the backend discovered. -->
+      <div id="model-dropdown" role="listbox"></div>
     </div>
-    <button id="clear-btn" title="Clear conversation">↺</button>
-  </div>
-  <div id="messages"></div>
-  <div id="input-area">
-    <textarea id="input" placeholder="Ask AgentCode…" rows="1"></textarea>
-    <button id="send-btn">Send</button>
-  </div>
+    <button id="clear-btn" class="icon-btn" type="button" title="New chat">＋</button>
+  </header>
+
+  <main id="messages">
+    <section id="empty-state">
+      <h1>What are we building?</h1>
+      <p>Ask about this workspace, or type <kbd>/</kbd> for commands.</p>
+      <div class="suggestions">
+        <button class="suggestion" data-prompt="Explain how this project is structured.">Explain this project</button>
+        <button class="suggestion" data-prompt="Find and fix the failing tests.">Fix failing tests</button>
+        <button class="suggestion" data-prompt="Review my uncommitted changes for bugs.">Review my changes</button>
+      </div>
+    </section>
+  </main>
+
+  <footer id="composer-wrap">
+    <div id="composer">
+      <div id="slash-menu" role="listbox" hidden></div>
+      <textarea id="input" placeholder="Ask AgentCode…" rows="1"
+                aria-autocomplete="list" aria-controls="slash-menu"></textarea>
+      <div id="composer-bar">
+        <div id="effort" role="radiogroup" aria-label="Reasoning effort" hidden>
+          <button class="effort-pill" data-effort="low" role="radio"
+                  title="Low — fast answers and autocomplete-style edits">Low</button>
+          <button class="effort-pill" data-effort="medium" role="radio"
+                  title="Medium — standard coding tasks">Medium</button>
+          <button class="effort-pill" data-effort="high" role="radio"
+                  title="High — deep multi-file fixes">High</button>
+        </div>
+        <span id="composer-hint"></span>
+        <button id="send-btn" type="button" title="Send (Enter)" aria-label="Send">↑</button>
+      </div>
+    </div>
+  </footer>
   <script nonce="${nonce}" src="${jsUri}"></script>
 </body>
 </html>`;

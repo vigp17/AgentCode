@@ -86,7 +86,9 @@ Press `Cmd+Shift+A`
 
 - **Inline completions** — AI-powered ghost-text suggestions as you type, powered by Claude Haiku. Press `Tab` to accept
 - **Live streaming** — responses stream in real time
-- **Model picker** — every Claude, GPT and Gemini model your keys can use, discovered automatically, plus AgentCode's fine-tunes. Filter box and ↻ refresh
+- **Model picker** — the AgentCode lineup (`axon-1`, `tandav-1`, `veda-1`, `chitra-1`) plus every Claude, GPT and Gemini model your keys can use, discovered automatically. Search box and ↻ refresh. Switching is instant and keeps the conversation
+- **Reasoning effort** — with `axon-1` selected, Low / Medium / High pills under the input set how hard it works per turn
+- **Slash commands** — type `/` for `/model <name>` (with model autocomplete), `/effort <level>` and `/clear`
 - **Active file context** — your current file is sent automatically, no copy-pasting needed
 - **Diff viewer** — edit tool calls open VS Code's native diff viewer so you can review changes before applying
 - **Right-click actions** — ask about selected code or explain a file directly from the editor

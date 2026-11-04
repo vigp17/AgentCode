@@ -65,6 +65,34 @@ def _read() -> dict | None:
         return None
 
 
+# ── Live model / effort switching ─────────────────────────────────────────────
+
+def _write_model_changed(config: AgentConfig) -> None:
+    _write({
+        "type": "model_changed",
+        "model": config.model,
+        "effort": config.effort,
+        "routing": bool(config.router and config.router.enabled),
+    })
+
+
+def _set_model(config: AgentConfig, model: str) -> None:
+    """Switch model in place — no process restart, conversation kept.
+
+    Like the CLI's /model: an explicit pick disables cost-aware routing so
+    the chosen model is the one that answers.
+    """
+    if not model:
+        _write({"type": "error", "message": "set_model needs a model name."})
+        return
+    config.model = model
+    if config.router:
+        config.router.enabled = False
+        config.router.default_model = model
+        config.router.provider = config.router.detect_provider(model)
+    _write_model_changed(config)
+
+
 # ── Permission over stdio ─────────────────────────────────────────────────────
 
 def _ask_permission_server(tool_name: str, args: dict) -> bool:
@@ -98,6 +126,31 @@ def _server_turn(
     else:
         model = config.model
 
+    ft = finetuned.get(model)
+    if ft and ft.kind != "chat":
+        conversation.messages.pop()
+        _write({"type": "error", "message":
+                f"{model} generates images, not chat replies. Image generation with /image "
+                "isn't wired up yet — pick a chat model for now."})
+        _write({"type": "done", "cost": 0.0})
+        return
+    if ft and finetuned.is_ecosystem(model) and not ft.configured:
+        conversation.messages.pop()
+        env = f"AGENTCODE_FT_{finetuned._env_name(model)}_API_BASE"
+        _write({"type": "error", "message":
+                f"{model} isn't connected. Serve it and set {env} (e.g. in your workspace .env), "
+                "or pick another model."})
+        _write({"type": "done", "cost": 0.0})
+        return
+
+    system = conversation.system
+    max_iterations = config.max_iterations
+    if ft and ft.max_iterations:
+        max_iterations = ft.max_iterations
+    if ft and ft.supports_effort:
+        system += finetuned.effort_system_suffix(config.effort)
+        max_iterations = finetuned.EFFORT_MAX_ITERATIONS[config.effort]
+
     conversation.compact(max_tokens=80_000, model=model)
     hooks = load_hooks(config.project_dir, config.settings)
 
@@ -105,10 +158,10 @@ def _server_turn(
     all_tools = TOOL_DEFINITIONS + (mcp.get_tool_definitions() if mcp else [])
     tool_names = {t["function"]["name"] for t in all_tools}
 
-    for _ in range(config.max_iterations):
+    for _ in range(max_iterations):
         stream = litellm.completion(
             **finetuned.completion_kwargs(model),
-            messages=[{"role": "system", "content": conversation.system}, *conversation.messages],
+            messages=[{"role": "system", "content": system}, *conversation.messages],
             tools=all_tools,
             tool_choice="auto",
             stream=True,
@@ -163,7 +216,7 @@ def _server_turn(
         if not tool_calls_accum:
             conversation.messages.append({"role": "assistant", "content": full_text})
             trajectories.log_turn(
-                config.settings, conversation.system,
+                config.settings, system,
                 trajectories.turn_slice(conversation.messages, user_msg),
                 all_tools, model, config.project_dir,
             )
@@ -225,10 +278,13 @@ def run_server(config: AgentConfig) -> None:
       {"type": "permission_response", "approved": true}
       {"type": "clear"}
       {"type": "list_models",         "refresh": false}
+      {"type": "set_model",           "model": "axon-1"}
+      {"type": "set_effort",          "effort": "low" | "medium" | "high"}
       {"type": "ping"}
 
     Server → Client messages:
-      {"type": "ready",              "model": "...", "project_dir": "..."}
+      {"type": "ready",              "model": "...", "project_dir": "...", "effort": "..."}
+      {"type": "model_changed",      "model": "...", "effort": "...", "routing": false}
       {"type": "text",               "delta": "..."}
       {"type": "tool_call",          "name": "...", "args": {...}}
       {"type": "tool_result",        "name": "...", "result": "..."}
@@ -251,7 +307,8 @@ def run_server(config: AgentConfig) -> None:
     sess = Path(config.project_dir) / ".agentcode_session.json"
     conversation.load(sess)
 
-    _write({"type": "ready", "model": config.model, "project_dir": config.project_dir})
+    _write({"type": "ready", "model": config.model, "project_dir": config.project_dir,
+            "effort": config.effort})
     _send_models(config)
 
     file_context: str | None = None
@@ -288,6 +345,17 @@ def run_server(config: AgentConfig) -> None:
             sess.unlink(missing_ok=True)
             file_context = None
             _write({"type": "cleared"})
+
+        elif msg_type == "set_model":
+            _set_model(config, str(msg.get("model", "")).strip())
+
+        elif msg_type == "set_effort":
+            effort = str(msg.get("effort", "")).lower()
+            if effort in finetuned.EFFORT_LEVELS:
+                config.effort = effort
+                _write_model_changed(config)
+            else:
+                _write({"type": "error", "message": f"Unknown effort '{effort}' (low, medium, high)."})
 
         elif msg_type == "list_models":
             _send_models(config, refresh=bool(msg.get("refresh")))

@@ -70,6 +70,8 @@ class AgentConfig:
     # prompt; server mode injects a stdio-based one so subagents don't read
     # from the same stdin the JSON protocol is using.
     permission_cb: Callable[[str, dict], bool] | None = None
+    # Reasoning effort for models that support it (axon-1): "low" | "medium" | "high".
+    effort: str = "medium"
     # Current nesting level; subagents run at parent depth + 1.
     subagent_depth: int = 0
     max_subagent_depth: int = field(

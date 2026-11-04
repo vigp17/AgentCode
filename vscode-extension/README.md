@@ -44,6 +44,26 @@ Ghost-text suggestions appear as you type. Press `Tab` to accept. Toggle on/off 
 
 By default completions use **Claude Haiku** (requires `agentcode.anthropicApiKey`). You can swap in any OpenAI-compatible `/v1/chat/completions` endpoint — a vLLM or TGI server, or a HuggingFace Inference Endpoint — by setting `agentcode.inlineCompletions.endpoint`, `agentcode.inlineCompletions.model`, and (if the endpoint requires one) `agentcode.inlineCompletions.apiKey`.
 
+### The AgentCode lineup
+
+The model dropdown always lists AgentCode's own models:
+
+| Model | Role |
+|-------|------|
+| `axon-1` | Unified code model for everyday coding, file reads and surgical edits. Has a **Reasoning Effort** selector (Low / Medium / High) under the input |
+| `tandav-1` | Apex architect for the hardest multi-file work, up to 50 agent steps |
+| `veda-1` | Deep research: docs, web context, cited specs |
+| `chitra-1` | Visual assets (image model; `/image` is coming) |
+
+A model shows **not connected** until you serve it and set its endpoint, for
+example `AGENTCODE_FT_AXON_1_API_BASE=http://localhost:8002/v1` in your
+workspace `.env`.
+
+**Keyboard:** type `/` in the input for commands. `/model ax` autocompletes
+model names (↑/↓ to choose, Tab or Enter to accept), `/effort high` sets the
+effort, and `/clear` starts a new chat. Switching model or effort takes effect
+immediately and keeps the conversation; the backend isn't restarted.
+
 ### Multi-Model Support
 Switch models mid-session from the dropdown in the chat panel. **The dropdown fills itself.** The backend asks Anthropic, OpenAI and Google which models your API keys can use, so a newly released model appears without an extension or CLI update. Use the filter box to search, or click **↻ Check for new models** to re-check right away.
 

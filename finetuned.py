@@ -49,6 +49,10 @@ class FineTunedModel:
     input_cost_per_mtok: float = 0.0
     output_cost_per_mtok: float = 0.0
     configured: bool = False  # True once the user pointed it at an endpoint
+    kind: str = "chat"        # "chat" | "image"
+    supports_effort: bool = False   # accepts low/medium/high effort tags
+    max_iterations: int | None = None  # per-model agent-loop cap (None = settings)
+    description: str = ""
 
     @property
     def litellm_model(self) -> str:
@@ -79,7 +83,48 @@ BUILTIN_FINETUNES: list[FineTunedModel] = [
     ),
 ]
 
-_registry: dict[str, FineTunedModel] = {m.name: m for m in BUILTIN_FINETUNES}
+# The AgentCode ecosystem: four in-house models, always listed in the VS Code
+# picker (marked "not connected" until an endpoint is configured with
+# AGENTCODE_FT_<NAME>_API_BASE, e.g. AGENTCODE_FT_AXON_1_API_BASE, or settings).
+ECOSYSTEM: list[FineTunedModel] = [
+    FineTunedModel(
+        name="axon-1", tier="medium", label="axon-1",
+        base_model="Qwen/Qwen2.5-Coder-14B-Instruct", supports_effort=True,
+        description="Unified code model: everyday coding, reads and surgical edits",
+    ),
+    FineTunedModel(
+        name="tandav-1", tier="heavy", label="tandav-1",
+        base_model="Qwen/Qwen3-Next-80B-A3B-Instruct", max_iterations=50,
+        description="Apex architect: hardest multi-file work, up to 50 agent steps",
+    ),
+    FineTunedModel(
+        name="veda-1", tier="research", label="veda-1",
+        base_model="deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
+        description="Deep research: docs, web context, cited specs",
+    ),
+    FineTunedModel(
+        name="chitra-1", tier="image", label="chitra-1", kind="image",
+        base_model="black-forest-labs/FLUX.1-schnell",
+        description="Visual assets: icons, diagrams, images into your workspace",
+    ),
+]
+
+# Effort levels for models with supports_effort. The tag is added to the
+# system prompt (the fine-tune is trained on it); the iteration cap bounds
+# how much work one turn may do.
+EFFORT_LEVELS = ("low", "medium", "high")
+EFFORT_MAX_ITERATIONS = {"low": 8, "medium": 25, "high": 40}
+
+
+def effort_system_suffix(effort: str) -> str:
+    return f"\n\n<effort>{effort}</effort>"
+
+
+def _env_name(name: str) -> str:
+    return name.upper().replace("-", "_").replace(".", "_")
+
+
+_registry: dict[str, FineTunedModel] = {m.name: m for m in [*BUILTIN_FINETUNES, *ECOSYSTEM]}
 
 
 def configure(overrides: dict | None = None) -> None:
@@ -98,6 +143,13 @@ def configure(overrides: dict | None = None) -> None:
         if per_tier or shared:
             m.api_base = per_tier or shared
             m.configured = True
+
+    for eco in ECOSYSTEM:
+        m = replace(eco)
+        url = os.environ.get(f"AGENTCODE_FT_{_env_name(m.name)}_API_BASE")
+        if url:
+            m.api_base, m.configured = url, True
+        reg[m.name] = m
 
     for name, cfg in (overrides or {}).items():
         if not isinstance(cfg, dict):
@@ -145,8 +197,21 @@ def completion_kwargs(model: str) -> dict:
     return m.completion_kwargs() if m else {"model": model}
 
 
+def is_ecosystem(name: str) -> bool:
+    return any(m.name == name for m in ECOSYSTEM)
+
+
 def as_discovered() -> list[DiscoveredModel]:
+    """Ecosystem models always (so the picker shows the lineup), plus any
+    other fine-tune that has an endpoint."""
+    eco_names = [m.name for m in ECOSYSTEM]
+    rows = [_registry[n] for n in eco_names if n in _registry]
+    rows += [m for m in all_models() if m.name not in eco_names]
     return [
-        DiscoveredModel(id=m.name, provider="agentcode", label=m.label, source="finetuned")
-        for m in all_models()
+        DiscoveredModel(
+            id=m.name, provider="agentcode", label=m.label, source="finetuned",
+            kind=m.kind, available=m.configured, supports_effort=m.supports_effort,
+            description=m.description,
+        )
+        for m in rows
     ]

@@ -26,7 +26,8 @@ def reset_registry(monkeypatch):
 
 
 def test_three_builtin_finetunes_one_per_tier():
-    models = finetuned.all_models(include_unconfigured=True)
+    models = [m for m in finetuned.all_models(include_unconfigured=True)
+              if m.name.startswith("agentcode-")]
     assert sorted(m.name for m in models) == ["agentcode-heavy", "agentcode-light", "agentcode-medium"]
     assert {m.tier for m in models} == {"light", "medium", "heavy"}
     assert all(m.base_model.startswith("Qwen/") for m in models)
@@ -34,7 +35,10 @@ def test_three_builtin_finetunes_one_per_tier():
 
 def test_unconfigured_finetunes_are_hidden_from_picker():
     assert finetuned.all_models() == []
-    assert finetuned.as_discovered() == []
+    # Only the ecosystem lineup is always listed — marked unavailable.
+    rows = finetuned.as_discovered()
+    assert [r.id for r in rows] == ["axon-1", "tandav-1", "veda-1", "chitra-1"]
+    assert not any(r.available for r in rows)
 
 
 def test_env_configures_endpoints(monkeypatch):
@@ -158,7 +162,8 @@ import train  # noqa: E402  (finetune/ is on sys.path above; no GPU deps at impo
 
 
 def test_bases_match_requested_sizes():
-    bases = {m.tier: m.base_model for m in finetuned.all_models(include_unconfigured=True)}
+    bases = {m.tier: m.base_model for m in finetuned.all_models(include_unconfigured=True)
+             if m.name.startswith("agentcode-")}
     assert bases == {
         "light": "Qwen/Qwen3-4B-Instruct-2507",            # 4B
         "medium": "Qwen/Qwen3-14B",                        # ~12B class
@@ -185,3 +190,21 @@ def test_mask_labels_ignores_context_tokens():
     labels = train.mask_labels(ids, offsets, train.assistant_spans(text))
     kept = "".join(text[i] for i, lab in enumerate(labels) if lab != -100)
     assert kept == "yo<|im_end|>"
+
+
+# ── ecosystem: axon-1 / tandav-1 / veda-1 / chitra-1 ──────────────────────────
+
+def test_ecosystem_metadata():
+    axon, tandav, veda, chitra = (finetuned.get(n) for n in ("axon-1", "tandav-1", "veda-1", "chitra-1"))
+    assert axon.supports_effort and not tandav.supports_effort
+    assert tandav.max_iterations == 50
+    assert chitra.kind == "image" and veda.kind == "chat"
+
+
+def test_ecosystem_endpoint_env(monkeypatch):
+    monkeypatch.setenv("AGENTCODE_FT_AXON_1_API_BASE", "http://localhost:11434/v1")
+    finetuned.configure({})
+    rows = {r.id: r for r in finetuned.as_discovered()}
+    assert rows["axon-1"].available and not rows["tandav-1"].available
+    assert finetuned.completion_kwargs("axon-1")["api_base"] == "http://localhost:11434/v1"
+    assert ModelRouter.detect_provider("axon-1") == "agentcode"
