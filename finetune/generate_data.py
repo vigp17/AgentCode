@@ -82,7 +82,34 @@ def check_teacher(teacher: str) -> None:
     print(f"Teacher OK: {teacher}")
 
 
-def run_task(task: dict, teacher: str, out_dir: Path, timeout: int, max_iter: int) -> tuple[bool, str]:
+def task_env(tmp: Path, repo: str, use_venv: bool = True, with_pip: bool = True) -> dict:
+    """Environment for one task's agent.
+
+    Each task gets its own Python venv first on PATH, so `pip install ...`
+    run by the agent lands there and is thrown away with the task. Without
+    this, the agent can overwrite or delete packages AgentCode itself needs:
+    `pip install -e .` in a jinja checkout replaced jinja2 with a link into a
+    temp folder, and every later task crashed once that folder was deleted.
+    """
+    env = {
+        **os.environ,
+        "AGENTCODE_TRAJECTORY_PROJECT": hashlib.sha256(repo.encode()).hexdigest()[:12],
+        "AGENTCODE_DISABLE_DISCOVERY": "1",
+    }
+    env.pop("PYTHONPATH", None)
+    if use_venv:
+        venv = tmp / "venv"
+        cmd = [sys.executable, "-m", "venv", str(venv)]
+        if not with_pip:
+            cmd.insert(3, "--without-pip")
+        subprocess.run(cmd, check=True, capture_output=True)
+        env["VIRTUAL_ENV"] = str(venv)
+        env["PATH"] = f"{venv / 'bin'}{os.pathsep}{env.get('PATH', '')}"
+    return env
+
+
+def run_task(task: dict, teacher: str, out_dir: Path, timeout: int, max_iter: int,
+             use_venv: bool = True) -> tuple[bool, str]:
     repo, prompt = task["repo"], task["task"]
     with tempfile.TemporaryDirectory(prefix="agentcode-gen-") as tmp:
         work = Path(tmp) / "repo"
@@ -93,12 +120,10 @@ def run_task(task: dict, teacher: str, out_dir: Path, timeout: int, max_iter: in
             "training": {"log_trajectories": True, "trajectories_dir": str(out_dir)},
             "limits": {"max_iterations": max_iter},
         }))
-        env = {
-            **os.environ,
-            "AGENTCODE_TRAJECTORY_PROJECT": hashlib.sha256(repo.encode()).hexdigest()[:12],
-            "AGENTCODE_DISABLE_DISCOVERY": "1",
-        }
-        cmd = [sys.executable, str(REPO_ROOT / "cli.py"), "-y", "--no-route",
+        env = task_env(Path(tmp), repo, use_venv)
+        # -I: AgentCode's own interpreter ignores PYTHONPATH / user site, so
+        # nothing the agent sets up can shadow AgentCode's dependencies.
+        cmd = [sys.executable, "-I", str(REPO_ROOT / "cli.py"), "-y", "--no-route",
                "--model", teacher, "--dir", str(work), prompt]
         try:
             r = subprocess.run(cmd, env=env, timeout=timeout, capture_output=True, text=True)
@@ -120,6 +145,8 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=1, help="tasks run in parallel")
     ap.add_argument("--limit", type=int, help="only run the first N pending tasks (trial run)")
     ap.add_argument("--skip-check", action="store_true", help="don't test the teacher first")
+    ap.add_argument("--no-task-venv", action="store_true",
+                    help="don't give each task its own Python venv (not recommended)")
     args = ap.parse_args()
     if not args.skip_check:
         check_teacher(args.teacher)
@@ -140,7 +167,7 @@ def main() -> None:
 
     def one(task: dict) -> tuple[bool, str]:
         good, output = run_task(task, args.teacher, args.out.resolve(), args.timeout,
-                                args.max_iterations)
+                                args.max_iterations, use_venv=not args.no_task_venv)
         if good:
             with lock, done_file.open("a") as f:
                 f.write(task_id(task) + "\n")

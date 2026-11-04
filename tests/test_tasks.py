@@ -35,7 +35,7 @@ def test_generate_data_resumes(tmp_path, monkeypatch):
     tasks = tmp_path / "t.jsonl"
     tasks.write_text("\n".join(json.dumps({"repo": "r", "task": f"task {i}"}) for i in range(5)))
     ran = []
-    monkeypatch.setattr(generate_data, "run_task", lambda t, *a: (ran.append(t["task"]), (True, ""))[1])
+    monkeypatch.setattr(generate_data, "run_task", lambda t, *a, **k: (ran.append(t["task"]), (True, ""))[1])
     argv = ["generate_data.py", "--tasks", str(tasks), "--teacher", "x", "--out", str(tmp_path / "o"),
             "--skip-check"]
 
@@ -55,7 +55,7 @@ def test_failed_tasks_are_logged_and_retried(tmp_path, monkeypatch):
     argv = ["generate_data.py", "--tasks", str(tasks), "--teacher", "x", "--out", str(out), "--skip-check"]
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(generate_data, "run_task",
-                        lambda *a: (False, "--- stderr ---\nAuthenticationError: invalid key"))
+                        lambda *a, **k: (False, "--- stderr ---\nAuthenticationError: invalid key"))
     generate_data.main()
     logs = list((out / "logs").glob("*.log"))
     assert len(logs) == 1 and "invalid key" in logs[0].read_text()
@@ -75,3 +75,18 @@ def test_teacher_check_stops_early(monkeypatch):
         assert "User not found" in str(e) and "OPENROUTER_API_KEY" in str(e)
     else:
         raise AssertionError("expected SystemExit")
+
+
+def test_each_task_gets_its_own_python(tmp_path, monkeypatch):
+    import os
+    import subprocess
+    monkeypatch.setenv("PYTHONPATH", "/somewhere")
+    env = generate_data.task_env(tmp_path, "https://github.com/pallets/jinja", with_pip=False)
+    venv_bin = str(tmp_path / "venv" / "bin")
+    assert env["PATH"].split(os.pathsep)[0] == venv_bin
+    assert env["VIRTUAL_ENV"] == str(tmp_path / "venv")
+    assert "PYTHONPATH" not in env
+    # `python` for the agent's commands resolves to the task venv, not ours.
+    out = subprocess.run(["python", "-c", "import sys; print(sys.prefix)"],
+                         env=env, capture_output=True, text=True, check=True).stdout.strip()
+    assert out == str(tmp_path / "venv")
