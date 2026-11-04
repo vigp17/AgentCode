@@ -1,0 +1,18 @@
+{
+  "name": "agentcode-medium",
+  "tier": "medium",
+  "base_model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "description": "Everyday coding: write, fix, test, refactor a file or two.",
+  "data": {"max_tool_calls": 10, "max_chars": 64000},
+  "lora": {"r": 32, "alpha": 64, "dropout": 0.0},
+  "train": {
+    "max_seq_length": 16384,
+    "load_in_4bit": true,
+    "epochs": 2,
+    "learning_rate": 1e-4,
+    "per_device_batch_size": 2,
+    "gradient_accumulation_steps": 8,
+    "warmup_ratio": 0.03
+  },
+  "hardware": "1x 24-48GB GPU (A10/L40S/RTX 4090), ~3h per 5k examples"
+}

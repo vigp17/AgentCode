@@ -100,6 +100,10 @@ export class AgentProcess {
     this.send({ type: "permission_response", approved });
   }
 
+  requestModels(refresh: boolean): void {
+    this.send({ type: "list_models", refresh });
+  }
+
   sendClear(): void {
     this.send({ type: "clear" });
   }

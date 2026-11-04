@@ -26,6 +26,8 @@ from xml_tool_parser import (
 
 from tools import TOOL_DEFINITIONS, execute_tool
 from router import ModelRouter, display_routing_decision
+import finetuned
+import trajectories
 from mcp_client import MCPManager
 from settings import Settings
 
@@ -156,7 +158,7 @@ class Conversation:
             if not parts:
                 return f"[{len(messages)} earlier messages were compacted.]"
             resp = litellm.completion(
-                model=model,
+                **finetuned.completion_kwargs(model),
                 messages=[{"role": "user", "content": (
                     "Summarize this conversation in 3-5 sentences, preserving key decisions, "
                     "file names, and code changes:\n\n" + "\n".join(parts[:50])
@@ -368,7 +370,8 @@ def run_agent_loop(
 
     silent=True suppresses all console output (used by subagents).
     """
-    conversation.messages.append({"role": "user", "content": user_input})
+    user_msg = {"role": "user", "content": user_input}
+    conversation.messages.append(user_msg)
 
     router = config.router
     if router:
@@ -388,7 +391,7 @@ def run_agent_loop(
 
     for _ in range(config.max_iterations):
         stream = litellm.completion(
-            model=model,
+            **finetuned.completion_kwargs(model),
             messages=[{"role": "system", "content": conversation.system}, *conversation.messages],
             tools=all_tools,
             tool_choice="auto",
@@ -457,6 +460,13 @@ def run_agent_loop(
         # Pure text response — done
         if not tool_calls_accum:
             conversation.messages.append({"role": "assistant", "content": full_text})
+            # Subagent turns are logged by their parent's trajectory only.
+            if config.subagent_depth == 0:
+                trajectories.log_turn(
+                    config.settings, conversation.system,
+                    trajectories.turn_slice(conversation.messages, user_msg),
+                    all_tools, model, config.project_dir,
+                )
             return full_text
 
         # Append assistant turn with accumulated tool calls

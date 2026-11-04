@@ -1,0 +1,13 @@
+# Training/serving stack for AgentCode's fine-tunes. Needs a CUDA GPU.
+# Not required to *use* AgentCode — only to train its models.
+unsloth
+trl>=0.15
+transformers>=4.46
+datasets>=3.0
+peft>=0.13
+accelerate>=1.0
+bitsandbytes>=0.44
+# serving (optional; or use Ollama / SGLang / a hosted endpoint)
+vllm>=0.6
+# hosted backend (train.py --backend openai)
+openai>=1.50

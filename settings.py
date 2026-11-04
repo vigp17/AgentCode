@@ -25,6 +25,21 @@ class ModelSettings:
     light: str | None = None
     medium: str | None = None
     heavy: str | None = None
+    # Ask Anthropic/OpenAI/Google which models your keys can use, so new
+    # releases appear in /models and the VS Code picker automatically.
+    auto_discover: bool = True
+    # Route each tier to the newest discovered model of that class
+    # (e.g. the newest Opus for "heavy"). Explicit light/medium/heavy win.
+    auto_tiers: bool = True
+
+
+@dataclass
+class TrainingSettings:
+    # Save each completed agent turn (messages + tool calls) to
+    # ~/.agentcode/trajectories/ as training data for AgentCode's fine-tunes.
+    # Off by default: trajectories contain your code and prompts.
+    log_trajectories: bool = False
+    trajectories_dir: str | None = None
 
 
 @dataclass
@@ -41,6 +56,10 @@ class Settings:
     model: ModelSettings = field(default_factory=ModelSettings)
     limits: LimitsSettings = field(default_factory=LimitsSettings)
     hooks: dict[str, str] = field(default_factory=dict)
+    # Endpoints for AgentCode's fine-tuned models, keyed by model name —
+    # see finetuned.py. {"agentcode-medium": {"api_base": "http://gpu:8000/v1"}}
+    finetuned: dict[str, dict] = field(default_factory=dict)
+    training: TrainingSettings = field(default_factory=TrainingSettings)
 
 
 # ── Merge helpers ─────────────────────────────────────────────────────────────
@@ -69,6 +88,7 @@ def _dict_to_settings(d: dict) -> "Settings":
     model_d = d.get("model", {})
     limits_d = d.get("limits", {})
     hooks_d = d.get("hooks", {})
+    training_d = d.get("training", {})
 
     return Settings(
         permissions=PermissionsSettings(
@@ -82,6 +102,8 @@ def _dict_to_settings(d: dict) -> "Settings":
             light=model_d.get("light") or None,
             medium=model_d.get("medium") or None,
             heavy=model_d.get("heavy") or None,
+            auto_discover=bool(model_d.get("auto_discover", True)),
+            auto_tiers=bool(model_d.get("auto_tiers", True)),
         ),
         limits=LimitsSettings(
             max_file_size=int(limits_d.get("max_file_size", 1_000_000)),
@@ -90,6 +112,11 @@ def _dict_to_settings(d: dict) -> "Settings":
             max_iterations=int(limits_d.get("max_iterations", 25)),
         ),
         hooks=dict(hooks_d),
+        finetuned={k: dict(v) for k, v in d.get("finetuned", {}).items() if isinstance(v, dict)},
+        training=TrainingSettings(
+            log_trajectories=bool(training_d.get("log_trajectories", False)),
+            trajectories_dir=training_d.get("trajectories_dir") or None,
+        ),
     )
 
 
@@ -145,7 +172,9 @@ STARTER_SETTINGS: dict = {
         "routing": True,
         "light": None,
         "medium": None,
-        "heavy": None
+        "heavy": None,
+        "auto_discover": True,
+        "auto_tiers": True
     },
     "limits": {
         "max_file_size": 1000000,
@@ -153,7 +182,11 @@ STARTER_SETTINGS: dict = {
         "max_search_results": 100,
         "max_iterations": 25
     },
-    "hooks": {}
+    "hooks": {},
+    "finetuned": {},
+    "training": {
+        "log_trajectories": False
+    }
 }
 
 SETTINGS_HELP = """\
@@ -163,12 +196,16 @@ permissions.deny              tools that are always blocked, regardless of other
 model.default                 default LLM model string (e.g. "claude-sonnet-5")
 model.routing                 enable cost-aware model routing (true/false)
 model.light/medium/heavy      override the model used for each routing tier
+model.auto_discover           list every model your API keys can use (default: true)
+model.auto_tiers              route tiers to the newest discovered models (default: true)
 limits.max_file_size          max bytes for read_file (default: 1,000,000)
 limits.max_output             max chars for tool output truncation (default: 50,000)
 limits.max_search_results     cap on results from search tools (default: 100)
 limits.max_iterations         max tool-call loops per turn (default: 25)
 hooks                         shell commands run before/after tool calls
-                              keys: pre_<tool>, post_<tool>, pre_tool, post_tool\
+                              keys: pre_<tool>, post_<tool>, pre_tool, post_tool
+finetuned                     endpoints for agentcode-light/medium/heavy fine-tunes
+training.log_trajectories     save agent turns as fine-tuning data (default: false)\
 """
 
 

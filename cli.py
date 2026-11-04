@@ -5,14 +5,16 @@ AgentCode — an open, multi-model agentic coding CLI.
 Usage:
     agentcode                    # Interactive REPL
     agentcode "fix the bug"      # One-shot mode
-    agentcode --model gpt-4o     # Use a different model
+    agentcode --model gpt-5.6-terra  # Use a different model
     agentcode --no-route         # Disable cost-aware routing
 
 Supported models (via LiteLLM):
     claude-sonnet-5              # Anthropic Claude (default)
-    gpt-4o                       # OpenAI
-    gemini/gemini-2.5-pro        # Google
-    ... and 100+ more: https://docs.litellm.ai/docs/providers
+    gpt-5.6-terra                # OpenAI
+    gemini/gemini-3.6-flash      # Google
+    agentcode-medium             # AgentCode's own fine-tune (self-hosted)
+    New models from Anthropic, OpenAI and Google are discovered automatically
+    from your API keys — run /models to see them.
 """
 
 import os
@@ -32,6 +34,8 @@ from agent import (
     load_project_config, build_system_prompt,
 )
 from router import ModelRouter, model_pricing, is_known_model, list_registry_models
+import finetuned
+import model_discovery
 from mcp_client import create_mcp_manager
 from settings import (
     load_settings, generate_starter_settings, settings_sources, SETTINGS_HELP,
@@ -49,6 +53,30 @@ custom_theme = Theme({
 })
 
 console = Console(theme=custom_theme)
+
+# Latest discovery results, filled in by a background thread at startup.
+_discovered: dict[str, list] = {}
+
+
+def _start_discovery(config: "AgentConfig", refresh: bool = False, wait: float = 0) -> None:
+    settings = config.settings
+    if settings and not settings.model.auto_discover:
+        return
+
+    def done(results):
+        _discovered.clear()
+        _discovered.update(results)
+        if config.router and (not settings or settings.model.auto_tiers):
+            config.router.apply_discovered(results, model_discovery.auto_tiers)
+
+    t = model_discovery.refresh_in_background(done, refresh=refresh)
+    if wait:
+        t.join(timeout=wait)
+
+
+def _is_discovered(model: str) -> bool:
+    return any(m.id == model for models in _discovered.values() for m in models)
+
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 
@@ -95,7 +123,7 @@ def show_banner(config: AgentConfig, project_config: dict | None = None):
     console.print()
     console.print("  [dim]Type your request, or:[/dim]")
     console.print("  [dim]  /model <name>  — switch model (disables routing)[/dim]")
-    console.print("  [dim]  /models [f]    — browse available models and prices[/dim]")
+    console.print("  [dim]  /models [f]    — models on your account (auto-updated) + prices[/dim]")
     console.print("  [dim]  /route         — show/toggle routing[/dim]")
     console.print("  [dim]  /cost          — show session cost breakdown[/dim]")
     console.print("  [dim]  /mcp           — manage MCP server connections[/dim]")
@@ -156,7 +184,15 @@ def handle_slash_command(
                 config.router.default_model = arg
                 config.router.provider = ModelRouter.detect_provider(arg)
             console.print(f"[success]✓ Switched to model: {arg} (routing disabled)[/success]")
-            if not is_known_model(arg):
+            if finetuned.is_finetuned(arg):
+                ft = finetuned.get(arg)
+                console.print(f"[dim]  Fine-tuned model served from {ft.api_base}[/dim]")
+            elif not is_known_model(arg) and _is_discovered(arg):
+                console.print(
+                    "[dim]  Available on your account; litellm doesn't list its price "
+                    "yet, so costs will show as $0.00.[/dim]"
+                )
+            elif not is_known_model(arg):
                 console.print(
                     "[warning]  ⚠ Not in litellm's model registry — check the spelling, "
                     "or run `pip install -U litellm` if it's newly released. "
@@ -190,7 +226,12 @@ def handle_slash_command(
         return True
 
     elif command == "/models":
-        _show_models(arg.strip())
+        arg = arg.strip()
+        if arg == "refresh":
+            console.print("[dim]  Fetching model lists from Anthropic, OpenAI and Google…[/dim]")
+            _start_discovery(config, refresh=True, wait=30)
+            arg = ""
+        _show_models(arg)
         return True
 
     elif command == "/cost":
@@ -231,28 +272,56 @@ def handle_slash_command(
 
 # ── /models display ──────────────────────────────────────────────────────────
 
-def _show_models(query: str) -> None:
-    """List chat models litellm can route to and price, cheapest first."""
-    rows = list_registry_models(query, limit=30)
-    if not rows:
-        if query:
-            console.print(f"[warning]No models matching '{query}'.[/warning]")
-            console.print("[dim]  Try: /models claude | /models gpt | /models gemini[/dim]")
-        else:
-            console.print("[warning]Model registry unavailable (is litellm installed?).[/warning]")
-        return
+def _price_cols(name: str) -> str:
+    p = model_pricing(name)
+    return f"{p[0]:>11.2f}{p[1]:>12.2f}" if p else f"{'—':>11}{'—':>12}"
 
-    console.print(f"  [dim]{'model':<40}{'$ / 1M in':>11}{'$ / 1M out':>12}[/dim]")
-    for name, inp, out in rows:
-        shown = name if len(name) <= 40 else name[:37] + "..."
-        console.print(
-            f"  [bold]{shown:<40}[/bold]{inp:>11.2f}{out:>12.2f}", overflow="ellipsis"
-        )
+
+def _show_models(query: str) -> None:
+    """Models available to you: fine-tunes + everything your API keys can use
+    (newest first), falling back to a registry search for anything else."""
+    q = query.lower()
+    shown = 0
+    header = f"  [dim]{'model':<44}{'$ / 1M in':>11}{'$ / 1M out':>12}[/dim]"
+
+    groups: list[tuple[str, list]] = [("agentcode", finetuned.as_discovered())]
+    groups += [(p, _discovered.get(p, [])) for p in model_discovery.PROVIDERS]
+    for provider, models in groups:
+        rows = [m for m in models if not q or q in m.id.lower() or q in m.label.lower()]
+        if not rows:
+            continue
+        if shown == 0:
+            console.print(header)
+        src = "your API key" if rows[0].source == "api" else rows[0].source
+        console.print(f"\n  [bold cyan]{model_discovery.PROVIDER_LABELS[provider]}[/bold cyan] [dim]({src})[/dim]")
+        limit = 50 if q else 12
+        for m in rows[:limit]:
+            name = m.id if len(m.id) <= 44 else m.id[:41] + "..."
+            console.print(f"  [bold]{name:<44}[/bold]{_price_cols(m.id)}", overflow="ellipsis")
+        if len(rows) > limit:
+            console.print(f"  [dim]… {len(rows) - limit} more — /models <filter>[/dim]")
+        shown += len(rows)
+
+    if shown == 0:
+        rows = list_registry_models(query, limit=30)
+        if not rows:
+            if query:
+                console.print(f"[warning]No models matching '{query}'.[/warning]")
+                console.print("[dim]  Try: /models claude | /models gpt | /models gemini[/dim]")
+            elif not _discovered:
+                console.print("[warning]Still discovering models — try again in a moment.[/warning]")
+            return
+        console.print(header)
+        for name, inp, out in rows:
+            shown_name = name if len(name) <= 44 else name[:41] + "..."
+            console.print(f"  [bold]{shown_name:<44}[/bold]{inp:>11.2f}{out:>12.2f}", overflow="ellipsis")
+        console.print("\n[dim]  From litellm's model registry.[/dim]")
+
     console.print(
-        "\n[dim]  From litellm's model registry — "
-        "`pip install -U litellm` picks up newly released models.[/dim]"
+        "\n[dim]  New releases appear automatically (cached 24h). "
+        "/models refresh to re-check now.[/dim]"
     )
-    console.print("[dim]  Usage: /models <filter>   then: /model <name>[/dim]")
+    console.print("[dim]  Usage: /models [filter|refresh]   then: /model <name>[/dim]")
 
 
 # ── /settings display ────────────────────────────────────────────────────────
@@ -659,6 +728,7 @@ def main():
         cli_overrides.setdefault("model", {})["routing"] = False
 
     settings = load_settings(project_dir, cli_overrides or None)
+    finetuned.configure(settings.finetuned)
 
     # Apply configurable limits to tools module
     configure_limits(settings.limits)
@@ -678,6 +748,9 @@ def main():
         provider=ModelRouter.detect_provider(model),
         default_model=model,
         enabled=routing_enabled,
+        light_model=settings.model.light,
+        medium_model=settings.model.medium,
+        heavy_model=settings.model.heavy,
     )
 
     # Resolve max_iterations: env var takes precedence for backward compat
@@ -697,8 +770,13 @@ def main():
 
     if args.server:
         from server import run_server
-        run_server(config)
-    elif args.prompt:
+        run_server(config)  # runs its own discovery and reports it to the extension
+        return
+
+    # One-shot routes immediately, so give a cached/quick lookup a moment to
+    # land; the REPL lets it finish while the user types.
+    _start_discovery(config, wait=3 if args.prompt else 0)
+    if args.prompt:
         one_shot(args.prompt, config)
     else:
         repl(config)

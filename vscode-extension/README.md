@@ -45,15 +45,14 @@ Ghost-text suggestions appear as you type. Press `Tab` to accept. Toggle on/off 
 By default completions use **Claude Haiku** (requires `agentcode.anthropicApiKey`). You can swap in any OpenAI-compatible `/v1/chat/completions` endpoint — a vLLM or TGI server, or a HuggingFace Inference Endpoint — by setting `agentcode.inlineCompletions.endpoint`, `agentcode.inlineCompletions.model`, and (if the endpoint requires one) `agentcode.inlineCompletions.apiKey`.
 
 ### Multi-Model Support
-Switch models mid-session from the dropdown in the chat panel. Works with:
+Switch models mid-session from the dropdown in the chat panel. **The dropdown fills itself.** The backend asks Anthropic, OpenAI and Google which models your API keys can use, so a newly released model appears without an extension or CLI update. Use the filter box to search, or click **↻ Check for new models** to re-check right away.
 
-| Provider | Models |
-|----------|--------|
-| Anthropic | `claude-sonnet-5` (default), `claude-haiku-4-5`, `claude-opus-5`, `claude-fable-5` |
-| OpenAI | `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` |
-| Google | `gemini/gemini-3.1-pro-preview`, `gemini/gemini-3.6-flash`, `gemini/gemini-3.5-flash-lite` |
+The dropdown also lists:
 
-The dropdown lists common choices, but any of [LiteLLM's ~3,000 model names](https://docs.litellm.ai/docs/providers) works in the `agentcode.model` setting. Newly released models become available by upgrading the CLI backend's litellm (`pip install -U litellm`) — no extension update needed.
+- **Your OpenAI fine-tunes** (`ft:…` models), picked up from your account automatically.
+- **AgentCode's own fine-tuned models** (`agentcode-light`, `agentcode-medium`, `agentcode-heavy`), once you've pointed AgentCode at a server running them (for example `AGENTCODE_FT_MEDIUM_API_BASE=http://localhost:8002/v1` in your workspace `.env`). See [finetune/README.md](https://github.com/vigp17/AgentCode/blob/main/finetune/README.md).
+
+Any [LiteLLM model name](https://docs.litellm.ai/docs/providers) also works in the `agentcode.model` setting.
 
 ### Cost-Aware Routing
 Automatically routes each request to the cheapest model capable of handling it — heavy tasks go to powerful models, simple ones go to fast/cheap ones.

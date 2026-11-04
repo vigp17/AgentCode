@@ -45,27 +45,152 @@ clearBtn?.addEventListener("click", () => {
 });
 
 // ── Model picker ─────────────────────────────────────────────────────────────
+// The list is pushed by the backend ("models" message): every model your API
+// keys can use, discovered live from Anthropic/OpenAI/Google, plus AgentCode's
+// fine-tunes once they're configured. FALLBACK_MODELS only covers the moment
+// before the first result arrives (or when discovery is turned off).
+
+const FALLBACK_MODELS = [
+  { id: "claude-sonnet-5", provider: "anthropic", label: "Sonnet 5" },
+  { id: "claude-opus-5", provider: "anthropic", label: "Opus 5" },
+  { id: "claude-fable-5", provider: "anthropic", label: "Fable 5" },
+  { id: "claude-haiku-4-5", provider: "anthropic", label: "Haiku 4.5" },
+  { id: "gpt-5.6-sol", provider: "openai", label: "GPT-5.6 Sol" },
+  { id: "gpt-5.6-terra", provider: "openai", label: "GPT-5.6 Terra" },
+  { id: "gpt-5.6-luna", provider: "openai", label: "GPT-5.6 Luna" },
+  { id: "gemini/gemini-3.1-pro-preview", provider: "gemini", label: "Gemini 3.1 Pro" },
+  { id: "gemini/gemini-3.6-flash", provider: "gemini", label: "Gemini 3.6 Flash" },
+  { id: "gemini/gemini-3.5-flash-lite", provider: "gemini", label: "Gemini 3.5 Flash-Lite" },
+];
+
+const PROVIDER_ORDER = ["agentcode", "anthropic", "openai", "gemini"];
+const PROVIDER_LABELS = {
+  agentcode: "AgentCode (fine-tuned)",
+  anthropic: "Claude",
+  openai: "GPT",
+  gemini: "Gemini",
+};
+const PER_GROUP = 8; // newest N per provider; the filter box searches all
+
+const savedState = vscode.getState() || {};
+let models = savedState.models && savedState.models.length ? savedState.models : FALLBACK_MODELS;
+let currentModel = savedState.currentModel || "claude-sonnet-5";
+let modelFilter = "";
+const expandedGroups = new Set();
+
+function setModels(list) {
+  // A provider discovery returned nothing for (no key, offline) keeps its
+  // fallback entries so the picker never loses a whole group.
+  const found = new Set(list.map((m) => m.provider));
+  models = [...list, ...FALLBACK_MODELS.filter((m) => !found.has(m.provider))];
+  vscode.setState({ ...(vscode.getState() || {}), models: list, currentModel });
+  renderModelDropdown();
+}
+
+function renderModelDropdown() {
+  if (!modelDropdown) return;
+  const q = modelFilter.toLowerCase();
+  modelDropdown.innerHTML = "";
+
+  const filter = document.createElement("input");
+  filter.id = "model-filter";
+  filter.placeholder = "Filter models…";
+  filter.value = modelFilter;
+  filter.addEventListener("click", (e) => e.stopPropagation());
+  filter.addEventListener("input", () => {
+    modelFilter = filter.value;
+    renderModelDropdown();
+    const again = document.getElementById("model-filter");
+    again?.focus();
+    again?.setSelectionRange(again.value.length, again.value.length);
+  });
+  modelDropdown.appendChild(filter);
+
+  const providers = [...new Set([...PROVIDER_ORDER, ...models.map((m) => m.provider)])];
+  for (const provider of providers) {
+    const rows = models.filter(
+      (m) => m.provider === provider &&
+        (!q || m.id.toLowerCase().includes(q) || (m.label || "").toLowerCase().includes(q))
+    );
+    if (!rows.length) continue;
+    const group = document.createElement("div");
+    group.className = "model-group";
+    const label = document.createElement("div");
+    label.className = "model-group-label";
+    label.textContent = PROVIDER_LABELS[provider] || provider;
+    group.appendChild(label);
+
+    const showAll = q || expandedGroups.has(provider);
+    const visible = showAll ? rows : rows.slice(0, PER_GROUP);
+    // Keep the active model visible even if it's older than the newest N.
+    const active = rows.find((m) => m.id === currentModel);
+    if (active && !visible.includes(active)) visible.push(active);
+
+    for (const m of visible) {
+      const opt = document.createElement("div");
+      opt.className = "model-option" + (m.id === currentModel ? " active" : "");
+      opt.dataset.model = m.id;
+      opt.textContent = m.label || m.id;
+      if (m.label && m.label !== m.id) {
+        const sub = document.createElement("span");
+        sub.className = "model-id";
+        sub.textContent = m.id;
+        opt.appendChild(sub);
+      }
+      opt.addEventListener("click", () => selectModel(m.id));
+      group.appendChild(opt);
+    }
+    if (!showAll && rows.length > visible.length) {
+      const more = document.createElement("div");
+      more.className = "model-more";
+      more.textContent = `Show ${rows.length - visible.length} more…`;
+      more.addEventListener("click", (e) => {
+        e.stopPropagation();
+        expandedGroups.add(provider);
+        renderModelDropdown();
+      });
+      group.appendChild(more);
+    }
+    modelDropdown.appendChild(group);
+  }
+
+  const refresh = document.createElement("div");
+  refresh.className = "model-refresh";
+  refresh.textContent = "↻ Check for new models";
+  refresh.addEventListener("click", (e) => {
+    e.stopPropagation();
+    refresh.textContent = "Checking…";
+    vscode.postMessage({ type: "refresh_models" });
+  });
+  modelDropdown.appendChild(refresh);
+}
+
+function setCurrentModel(model) {
+  currentModel = model;
+  if (modelLabel) modelLabel.textContent = "▾ " + model;
+  vscode.setState({ ...(vscode.getState() || {}), currentModel: model });
+  renderModelDropdown();
+}
+
+function selectModel(model) {
+  modelDropdown?.classList.remove("open");
+  setCurrentModel(model);
+  vscode.postMessage({ type: "set_model", model });
+}
 
 modelLabel?.addEventListener("click", (e) => {
   e.stopPropagation();
   modelDropdown?.classList.toggle("open");
 });
 
+modelDropdown?.addEventListener("click", (e) => e.stopPropagation());
+
 document.addEventListener("click", () => {
   modelDropdown?.classList.remove("open");
 });
 
-document.querySelectorAll(".model-option").forEach((el) => {
-  el.addEventListener("click", () => {
-    const model = el.getAttribute("data-model");
-    if (!model) return;
-    document.querySelectorAll(".model-option").forEach((o) => o.classList.remove("active"));
-    el.classList.add("active");
-    if (modelLabel) modelLabel.textContent = "▾ " + model;
-    modelDropdown?.classList.remove("open");
-    vscode.postMessage({ type: "set_model", model });
-  });
-});
+renderModelDropdown();
+if (modelLabel) modelLabel.textContent = "▾ " + currentModel;
 
 // ── Message rendering ────────────────────────────────────────────────────────
 
@@ -137,10 +262,12 @@ window.addEventListener("message", (event) => {
 
   switch (msg.type) {
     case "ready":
-      if (modelLabel) modelLabel.textContent = "▾ " + msg.model;
-      document.querySelectorAll(".model-option").forEach((el) => {
-        el.classList.toggle("active", el.getAttribute("data-model") === msg.model);
-      });
+      setCurrentModel(msg.model);
+      break;
+
+    case "models":
+      if (Array.isArray(msg.models) && msg.models.length) setModels(msg.models);
+      else renderModelDropdown();
       break;
 
     case "text":

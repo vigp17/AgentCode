@@ -12,6 +12,8 @@ from functools import lru_cache
 
 from rich.console import Console
 
+import finetuned
+
 console = Console()
 
 
@@ -98,7 +100,13 @@ def _registry_pricing(model: str) -> tuple[float, float] | None:
 
 
 def model_pricing(model: str) -> tuple[float, float] | None:
-    """Price a model, preferring the live registry over the static tiers."""
+    """Price a model, preferring the live registry over the static tiers.
+
+    AgentCode's own fine-tunes are priced from their config (self-hosted → $0).
+    """
+    ft = finetuned.pricing(model)
+    if ft is not None:
+        return ft
     live = _registry_pricing(model)
     if live:
         return live
@@ -142,8 +150,11 @@ def _is_canonical(name: str) -> bool:
         return False
     if "." in name and name.split(".", 1)[0] in _DOTTED_ALIAS_HEADS:
         return False
-    if "/" in name and name.split("/", 1)[0] in _SLASHED_ALIAS_HEADS:
-        return False
+    if "/" in name:
+        head = name.split("/", 1)[0]
+        # Resellers keep adding variants ("bedrock_mantle/…"), so match by family.
+        if head in _SLASHED_ALIAS_HEADS or head.split("_", 1)[0] in _SLASHED_ALIAS_HEADS:
+            return False
     return True
 
 
@@ -159,7 +170,7 @@ def list_registry_models(query: str = "", limit: int = 40) -> list[tuple[str, fl
 
     q = query.lower()
     include_aliases = bool(q) and any(
-        q.startswith(p) or f"{p}/" in q or f"{p}." in q for p in _ALIAS_HEADS
+        q.startswith(p) or f"{p}/" in q or f"{p}_" in q or f"{p}." in q for p in _ALIAS_HEADS
     )
 
     rows: list[tuple[str, float, float]] = []
@@ -321,14 +332,59 @@ class ModelRouter:
     medium_model: str | None = None
     heavy_model: str | None = None
 
+    # Newest model per tier found by model discovery, keyed by provider:
+    # {"anthropic": {"heavy": "claude-opus-5-5", ...}}. Explicit per-tier
+    # overrides above still win; static tiers are the last fallback.
+    discovered_tiers: dict[str, dict[str, str]] = field(default_factory=dict)
+
     def get_tiers(self) -> list[ModelTier]:
         """Get the tier config for the current provider."""
-        return PROVIDER_TIERS.get(self.provider, [])
+        if self.provider == "agentcode":
+            ft_tiers = [
+                ModelTier(m.name, m.tier, m.label, m.input_cost_per_mtok, m.output_cost_per_mtok)
+                for m in finetuned.all_models()
+            ]
+            return _first_per_tier(ft_tiers)
+        static = PROVIDER_TIERS.get(self.provider, [])
+        found = self.discovered_tiers.get(self.provider, {})
+        if not found:
+            return static
+        by_tier = {t.tier: t for t in static}
+        out = []
+        for tier_name in ("light", "medium", "heavy"):
+            name = found.get(tier_name)
+            if name:
+                fallback = by_tier.get(tier_name)
+                same = fallback and fallback.name == name
+                out.append(ModelTier(
+                    name, tier_name, fallback.label if same else name,
+                    fallback.input_cost_per_mtok if same else 0.0,
+                    fallback.output_cost_per_mtok if same else 0.0,
+                ))
+            elif tier_name in by_tier:
+                out.append(by_tier[tier_name])
+        return out
+
+    def apply_discovered(self, discovered: dict, auto_tier_fn) -> None:
+        """Adopt the newest model per tier from discovery results.
+
+        A pick we can't price is skipped (keeps the static tier) so cost
+        tracking never silently drops to $0.
+        """
+        tiers: dict[str, dict[str, str]] = {}
+        for provider, models in discovered.items():
+            picks = auto_tier_fn(provider, models)
+            picks = {t: m for t, m in picks.items() if is_known_model(m)}
+            if picks:
+                tiers[provider] = picks
+        self.discovered_tiers = tiers
 
     @staticmethod
     def detect_provider(model_string: str) -> str:
         """Detect provider from a model string."""
         m = model_string.lower()
+        if finetuned.is_finetuned(model_string) or m.startswith("agentcode-"):
+            return "agentcode"
         if "claude" in m or "anthropic" in m:
             return "anthropic"
         elif "gpt" in m or "openai" in m or "o1" in m or "o3" in m:
@@ -398,6 +454,13 @@ class ModelRouter:
                 if tier.name == model:
                     return tier
         return None
+
+
+def _first_per_tier(tiers: list[ModelTier]) -> list[ModelTier]:
+    seen: dict[str, ModelTier] = {}
+    for t in tiers:
+        seen.setdefault(t.tier, t)
+    return [seen[k] for k in ("light", "medium", "heavy") if k in seen]
 
 
 def display_routing_decision(model: str, tier: str, reason: str, router: ModelRouter):

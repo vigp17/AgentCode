@@ -86,7 +86,7 @@ Press `Cmd+Shift+A`
 
 - **Inline completions** — AI-powered ghost-text suggestions as you type, powered by Claude Haiku. Press `Tab` to accept
 - **Live streaming** — responses stream in real time
-- **Model picker** — switch between Claude, GPT, and Gemini models from the dropdown in the header
+- **Model picker** — every Claude, GPT and Gemini model your keys can use, discovered automatically, plus AgentCode's fine-tunes. Filter box and ↻ refresh
 - **Active file context** — your current file is sent automatically, no copy-pasting needed
 - **Diff viewer** — edit tool calls open VS Code's native diff viewer so you can review changes before applying
 - **Right-click actions** — ask about selected code or explain a file directly from the editor
@@ -104,25 +104,38 @@ Press `Cmd+Shift+A`
 | OpenAI | `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` | `OPENAI_API_KEY` |
 | Google | `gemini/gemini-3.1-pro-preview`, `gemini/gemini-3.6-flash`, `gemini/gemini-3.5-flash-lite` | `GEMINI_API_KEY` |
 
-Any of LiteLLM's ~3,000 models works — the table above is just the routing
-default. Run `/models <filter>` in the REPL to browse what's available with
+Any of LiteLLM's ~3,000 models works. The table above is only the built-in
+fallback. Run `/models` in the REPL to see every model your keys can use, with
 current prices, then `/model <name>` to switch.
 
-### Keeping up with new releases
+### New models appear automatically
 
-Pricing and model availability come from **LiteLLM's model registry**, not from
-hardcoded values in this repo. When a provider ships a new model:
+You don't need to add new Anthropic, OpenAI or Google models yourself.
+On startup AgentCode asks each provider which models your API key can use:
 
-```bash
-pip install -U litellm
-```
+| Provider | Endpoint | Key |
+|----------|----------|-----|
+| Anthropic | `GET /v1/models` | `ANTHROPIC_API_KEY` |
+| OpenAI | `GET /v1/models` (chat models only, includes your `ft:` fine-tunes) | `OPENAI_API_KEY` |
+| Google | `GET /v1beta/models` (models that support `generateContent`) | `GEMINI_API_KEY` |
 
-That's it — the new model becomes usable by name and its costs are tracked
-correctly, with no AgentCode release required. `/models` will list it.
+- **Picker and `/models`.** A model shows up the day the provider ships it,
+  with no AgentCode release and no `pip install -U`. In VS Code, open the model
+  dropdown and use the filter box, or click **↻ Check for new models**. In the
+  CLI, run `/models` or `/models refresh`.
+- **Routing.** With `model.auto_tiers` on (the default), each tier uses the
+  newest model of its class: newest Haiku, Sonnet and Opus; newest
+  Flash-Lite, Flash and Pro; newest Luna, Terra and Sol. A new model AgentCode
+  can't price yet is skipped, so cost tracking never silently drops to $0.
+  Tiers you set yourself always win.
+- **Caching.** Results are cached in `~/.agentcode/models_cache.json` for 24h
+  (`AGENTCODE_MODELS_TTL_HOURS`). The cache stores a hash of the key, never
+  the key itself. With no key, or offline, AgentCode falls back to LiteLLM's
+  model registry. Turn discovery off with `model.auto_discover: false` or
+  `AGENTCODE_DISABLE_DISCOVERY=1`.
 
-What does *not* update automatically is which model serves each routing tier
-(light/medium/heavy) — that's a judgement call, so it stays explicit. Point a
-tier at a new model yourself in `.agentcode/settings.json`:
+Prices come from LiteLLM's model registry. To pin a tier to a specific model,
+set it in `.agentcode/settings.json`:
 
 ```json
 {
@@ -135,8 +148,28 @@ tier at a new model yourself in `.agentcode/settings.json`:
 ```
 
 If you set a model AgentCode can't price (a typo, or one newer than your
-LiteLLM version), it warns at startup and reports costs as `$0.00` rather than
-guessing.
+LiteLLM registry), it warns at startup and reports costs as `$0.00` rather
+than guessing.
+
+### AgentCode's own fine-tuned models
+
+AgentCode has three fine-tuned models, one per routing tier. They are LoRA
+fine-tunes of Qwen2.5-Coder trained on AgentCode tool-calling trajectories,
+and you can self-host them for $0 per token:
+
+| Model | Base | Tier |
+|-------|------|------|
+| `agentcode-light`  | Qwen2.5-Coder-1.5B-Instruct | light |
+| `agentcode-medium` | Qwen2.5-Coder-7B-Instruct   | medium |
+| `agentcode-heavy`  | Qwen2.5-Coder-32B-Instruct  | heavy |
+
+[`finetune/`](finetune/README.md) has the full pipeline: collect trajectories,
+prepare them, train with Unsloth (or OpenAI hosted fine-tuning), serve with
+vLLM and evaluate. Once a model is served, point AgentCode at it:
+
+```bash
+AGENTCODE_FT_MEDIUM_API_BASE=http://localhost:8002/v1 agentcode --model agentcode-medium
+```
 
 ---
 
@@ -146,9 +179,13 @@ AgentCode automatically picks the cheapest model that can handle the task:
 
 | Tier | Anthropic | OpenAI | Gemini |
 |------|-----------|--------|--------|
-| Light | Haiku 4.5 | GPT-5.6 Luna | Gemini 3.5 Flash-Lite |
-| Medium | Sonnet 5 | GPT-5.6 Terra | Gemini 3.6 Flash |
-| Heavy | Opus 5 | GPT-5.6 Sol | Gemini 3.1 Pro |
+| Light | newest Haiku | newest Luna | newest Flash-Lite |
+| Medium | newest Sonnet | newest Terra | newest Flash |
+| Heavy | newest Opus | newest Sol | newest Pro |
+
+The newest model in each class is discovered automatically (see above). If
+discovery is off, the fallback is Haiku 4.5 / Sonnet 5 / Opus 5,
+GPT-5.6 Luna / Terra / Sol, and Gemini 3.5 Flash-Lite / 3.6 Flash / 3.1 Pro.
 
 Simple questions go to cheap/fast models. Complex multi-file tasks go to powerful ones. Use `--no-route` to always use the specified model.
 
@@ -219,7 +256,9 @@ anytime with `/settings`.
   "model": {
     "default": "claude-sonnet-5",
     "routing": true,
-    "light": null, "medium": null, "heavy": null
+    "light": null, "medium": null, "heavy": null,
+    "auto_discover": true,
+    "auto_tiers": true
   },
   "limits": {
     "max_file_size": 1000000,
@@ -227,7 +266,9 @@ anytime with `/settings`.
     "max_search_results": 100,
     "max_iterations": 25
   },
-  "hooks": {}
+  "hooks": {},
+  "finetuned": {},
+  "training": { "log_trajectories": false }
 }
 ```
 
@@ -239,6 +280,10 @@ anytime with `/settings`.
 | `model.default` | Default model string |
 | `model.routing` | Enable cost-aware routing |
 | `model.light/medium/heavy` | Override the model for a routing tier |
+| `model.auto_discover` | List every model your API keys can use (default `true`) |
+| `model.auto_tiers` | Route each tier to the newest discovered model of its class (default `true`) |
+| `finetuned` | Endpoints for `agentcode-light/medium/heavy` or your own fine-tunes ([details](finetune/README.md#5-connect-agentcode)) |
+| `training.log_trajectories` | Save finished turns as fine-tuning data (default `false`) |
 | `limits.*` | File-size, output, search, and iteration caps |
 | `hooks` | Same format as `hooks.json` (see Hooks) |
 
@@ -253,7 +298,8 @@ To gate an MCP tool or approve it permanently, use its full name, e.g.
 | Command | Description |
 |---------|-------------|
 | `/model <name>` | Switch model on the fly |
-| `/models [filter]` | Browse available models and live prices |
+| `/models [filter]` | Models your keys can use (auto-discovered) and live prices |
+| `/models refresh` | Re-check providers for newly released models |
 | `/route` | Show or toggle cost-aware routing |
 | `/cost` | Show session cost breakdown |
 | `/mcp` | Manage MCP server connections |

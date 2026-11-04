@@ -1,0 +1,8 @@
+{"repo": "https://github.com/pallets/click", "task": "Explain how command groups are implemented and where subcommands get registered."}
+{"repo": "https://github.com/pallets/click", "task": "Run the test suite and summarize any failures."}
+{"repo": "https://github.com/psf/requests", "task": "Add type hints to the public functions in src/requests/api.py without changing behavior, then run the tests."}
+{"repo": "https://github.com/psf/requests", "task": "Find where redirect handling lives and write a short summary of how a 302 is processed."}
+{"repo": "https://github.com/tiangolo/typer", "task": "Add a unit test covering an option with a default value of None, and make sure it passes."}
+{"repo": "https://github.com/encode/httpx", "task": "Find all TODO comments in the codebase and list them with file and line."}
+{"repo": "https://github.com/sindresorhus/slugify", "task": "Add a test for slugifying a string that contains only emoji, then run the tests."}
+{"repo": "https://github.com/expressjs/express", "task": "Refactor examples/auth to use async/await instead of callbacks, keeping behavior identical."}

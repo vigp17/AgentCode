@@ -73,6 +73,8 @@ export class AgentPanel implements vscode.Disposable {
       this.agent.sendClear();
     } else if (msg.type === "permission_response") {
       this.agent.sendPermissionResponse(msg.approved);
+    } else if (msg.type === "refresh_models") {
+      this.agent.requestModels(true);
     } else if (msg.type === "set_model") {
       const workspaceDir =
         vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
@@ -126,27 +128,10 @@ export class AgentPanel implements vscode.Disposable {
   <div id="header">
     <div id="model-picker">
       <span id="model-label">▾ claude-sonnet-5</span>
-      <div id="model-dropdown">
-        <div class="model-group">
-          <div class="model-group-label">Claude</div>
-          <div class="model-option" data-model="claude-sonnet-5">Sonnet 5</div>
-          <div class="model-option" data-model="claude-opus-5">Opus 5</div>
-          <div class="model-option" data-model="claude-fable-5">Fable 5</div>
-          <div class="model-option" data-model="claude-haiku-4-5">Haiku 4.5</div>
-        </div>
-        <div class="model-group">
-          <div class="model-group-label">GPT</div>
-          <div class="model-option" data-model="gpt-5.6-sol">GPT-5.6 Sol</div>
-          <div class="model-option" data-model="gpt-5.6-terra">GPT-5.6 Terra</div>
-          <div class="model-option" data-model="gpt-5.6-luna">GPT-5.6 Luna</div>
-        </div>
-        <div class="model-group">
-          <div class="model-group-label">Gemini</div>
-          <div class="model-option" data-model="gemini/gemini-3.1-pro-preview">Gemini 3.1 Pro</div>
-          <div class="model-option" data-model="gemini/gemini-3.6-flash">Gemini 3.6 Flash</div>
-          <div class="model-option" data-model="gemini/gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</div>
-        </div>
-      </div>
+      <!-- Filled from the backend's "models" message (every model your API
+           keys can use, discovered live). The script holds a small fallback
+           list for before the first discovery result arrives. -->
+      <div id="model-dropdown"></div>
     </div>
     <button id="clear-btn" title="Clear conversation">↺</button>
   </div>

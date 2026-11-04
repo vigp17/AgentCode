@@ -2,11 +2,15 @@
 
 import sys
 import json
+import threading
 from pathlib import Path
 
 import litellm
 
 from tools import TOOL_DEFINITIONS
+import model_discovery
+import finetuned
+import trajectories
 from agent import (
     AgentConfig, Conversation,
     build_system_prompt, load_project_config, load_hooks,
@@ -20,8 +24,35 @@ from xml_tool_parser import (
 
 # ── Wire protocol ─────────────────────────────────────────────────────────────
 
+_write_lock = threading.Lock()
+
+
 def _write(msg: dict) -> None:
-    print(json.dumps(msg), flush=True)
+    # Model discovery writes from a background thread; keep each JSON line whole.
+    line = json.dumps(msg) + "\n"
+    with _write_lock:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+
+
+def _send_models(config: AgentConfig, refresh: bool = False) -> None:
+    """Discover models in the background and push them to the picker."""
+    settings = config.settings
+    if settings and not settings.model.auto_discover:
+        _write({"type": "models", "models": model_discovery.to_wire({}, finetuned.as_discovered()),
+                "current": config.model})
+        return
+
+    def done(results):
+        if config.router and (not settings or settings.model.auto_tiers):
+            config.router.apply_discovered(results, model_discovery.auto_tiers)
+        _write({
+            "type": "models",
+            "models": model_discovery.to_wire(results, finetuned.as_discovered()),
+            "current": config.model,
+        })
+
+    model_discovery.refresh_in_background(done, refresh=refresh)
 
 
 def _read() -> dict | None:
@@ -57,7 +88,8 @@ def _server_turn(
 ) -> None:
     """Run one agentic turn, streaming all output as JSON lines."""
     content = f"{file_context}\n\n{user_input}" if file_context else user_input
-    conversation.messages.append({"role": "user", "content": content})
+    user_msg = {"role": "user", "content": content}
+    conversation.messages.append(user_msg)
 
     router = config.router
     if router and router.enabled:
@@ -75,7 +107,7 @@ def _server_turn(
 
     for _ in range(config.max_iterations):
         stream = litellm.completion(
-            model=model,
+            **finetuned.completion_kwargs(model),
             messages=[{"role": "system", "content": conversation.system}, *conversation.messages],
             tools=all_tools,
             tool_choice="auto",
@@ -130,6 +162,11 @@ def _server_turn(
 
         if not tool_calls_accum:
             conversation.messages.append({"role": "assistant", "content": full_text})
+            trajectories.log_turn(
+                config.settings, conversation.system,
+                trajectories.turn_slice(conversation.messages, user_msg),
+                all_tools, model, config.project_dir,
+            )
             turn_cost = router.cost_tracker.last_turn_cost if router else 0.0
             _write({"type": "done", "cost": turn_cost})
             return
@@ -187,6 +224,7 @@ def run_server(config: AgentConfig) -> None:
       {"type": "context",             "file_path": "...", "content": "..."}
       {"type": "permission_response", "approved": true}
       {"type": "clear"}
+      {"type": "list_models",         "refresh": false}
       {"type": "ping"}
 
     Server → Client messages:
@@ -198,6 +236,7 @@ def run_server(config: AgentConfig) -> None:
       {"type": "done",               "cost": 0.0}
       {"type": "error",              "message": "..."}
       {"type": "cleared"}
+      {"type": "models",             "models": [{id, provider, label, ...}], "current": "..."}
       {"type": "pong"}
     """
     # Route every approval — including ones raised by subagent threads — through
@@ -213,6 +252,7 @@ def run_server(config: AgentConfig) -> None:
     conversation.load(sess)
 
     _write({"type": "ready", "model": config.model, "project_dir": config.project_dir})
+    _send_models(config)
 
     file_context: str | None = None
 
@@ -248,6 +288,9 @@ def run_server(config: AgentConfig) -> None:
             sess.unlink(missing_ok=True)
             file_context = None
             _write({"type": "cleared"})
+
+        elif msg_type == "list_models":
+            _send_models(config, refresh=bool(msg.get("refresh")))
 
         elif msg_type == "ping":
             _write({"type": "pong"})
