@@ -109,6 +109,12 @@ def task_env(tmp: Path, repo: str, use_venv: bool = True, with_pip: bool = True)
     return env
 
 
+# Extra interpreter flags for launching AgentCode. Deliberately none: the
+# agent's installs are already isolated in the per-task venv (task_env), and
+# flags like -I / -s break startup (-I drops cli.py's folder from sys.path;
+# -s hides packages installed with `pip install --user`).
+PY_FLAGS: tuple[str, ...] = ()
+
 STEP_LIMIT_EXIT = 3  # cli.py exits with this when it hits max_iterations
 
 
@@ -142,9 +148,7 @@ def run_task(task: dict, teacher: str, timeout: int, max_iter: int,
         }))
         env = task_env(Path(tmp), repo, use_venv)
         env["AGENTCODE_TRAJECTORY_TASK"] = task_id(task)
-        # -I: AgentCode's own interpreter ignores PYTHONPATH / user site, so
-        # nothing the agent sets up can shadow AgentCode's dependencies.
-        cmd = [sys.executable, "-I", str(REPO_ROOT / "cli.py"), "-y", "--no-route",
+        cmd = [sys.executable, *PY_FLAGS, str(REPO_ROOT / "cli.py"), "-y", "--no-route",
                "--model", teacher, "--dir", str(work), prompt]
         try:
             r = subprocess.run(cmd, env=env, timeout=timeout, capture_output=True, text=True)

@@ -130,3 +130,13 @@ def test_each_task_gets_its_own_python(tmp_path, monkeypatch):
     out = subprocess.run(["python", "-c", "import sys; print(sys.prefix)"],
                          env=env, capture_output=True, text=True, check=True).stdout.strip()
     assert out == str(tmp_path / "venv")
+
+
+def test_agentcode_starts_with_the_flags_generate_data_uses(tmp_path):
+    """Launch cli.py exactly as run_task does (from another folder) — the
+    `python -I` regression made every task fail with No module named 'agent'."""
+    import subprocess
+    r = subprocess.run([sys.executable, *generate_data.PY_FLAGS,
+                        str(generate_data.REPO_ROOT / "cli.py"), "--help"],
+                       cwd=tmp_path, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr[-500:]
