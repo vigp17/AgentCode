@@ -5,7 +5,6 @@ import json
 import threading
 from pathlib import Path
 
-import litellm
 
 from tools import TOOL_DEFINITIONS
 import model_discovery
@@ -14,7 +13,7 @@ import trajectories
 from agent import (
     AgentConfig, Conversation,
     build_system_prompt, load_project_config, load_hooks,
-    _dispatch_tool, _record_cost, _run_hook,
+    _dispatch_tool, _record_cost, _run_hook, stream_completion,
 )
 from xml_tool_parser import (
     looks_like_xml_tool_call, parse_xml_tool_calls, strip_think,
@@ -159,42 +158,14 @@ def _server_turn(
     tool_names = {t["function"]["name"] for t in all_tools}
 
     for _ in range(max_iterations):
-        stream = litellm.completion(
+        full_text, tool_calls_accum, usage = stream_completion(
+            lambda text: _write({"type": "text", "delta": text}),
             **finetuned.completion_kwargs(model),
             messages=[{"role": "system", "content": system}, *conversation.messages],
             tools=all_tools,
             tool_choice="auto",
-            stream=True,
             stream_options={"include_usage": True},
         )
-
-        full_text = ""
-        tool_calls_accum: dict[int, dict] = {}
-        usage = None
-
-        for chunk in stream:
-            if hasattr(chunk, "usage") and chunk.usage:
-                usage = chunk.usage
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-
-            if delta.content:
-                full_text += delta.content
-                _write({"type": "text", "delta": delta.content})
-
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if idx not in tool_calls_accum:
-                        tool_calls_accum[idx] = {"id": "", "name": "", "arguments": ""}
-                    if tc.id:
-                        tool_calls_accum[idx]["id"] = tc.id
-                    if tc.function:
-                        if tc.function.name:
-                            tool_calls_accum[idx]["name"] += tc.function.name
-                        if tc.function.arguments:
-                            tool_calls_accum[idx]["arguments"] += tc.function.arguments
 
         # Open-weight fine-tunes emit tool calls in the text response instead of
         # litellm's structured tool_calls field. Some use XML (<function=...>),

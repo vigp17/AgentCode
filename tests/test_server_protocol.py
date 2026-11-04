@@ -1,6 +1,7 @@
 """server.py live model/effort switching (no LLM calls)."""
 
 
+import litellm
 import pytest
 
 import finetuned
@@ -37,7 +38,7 @@ def test_set_model_requires_name(out):
 
 
 def test_unconnected_ecosystem_model_explains_how_to_connect(out, monkeypatch):
-    monkeypatch.setattr(server.litellm, "completion", lambda **k: pytest.fail("no LLM call"))
+    monkeypatch.setattr(litellm, "completion", lambda **k: pytest.fail("no LLM call"))
     cfg = _config()
     server._set_model(cfg, "axon-1")
     conv = Conversation(system="sys")
@@ -49,7 +50,7 @@ def test_unconnected_ecosystem_model_explains_how_to_connect(out, monkeypatch):
 def test_image_model_does_not_chat(out, monkeypatch):
     monkeypatch.setenv("AGENTCODE_FT_CHITRA_1_API_BASE", "http://x/v1")
     finetuned.configure({})
-    monkeypatch.setattr(server.litellm, "completion", lambda **k: pytest.fail("no LLM call"))
+    monkeypatch.setattr(litellm, "completion", lambda **k: pytest.fail("no LLM call"))
     cfg = _config()
     server._set_model(cfg, "chitra-1")
     server._server_turn("draw a cat", Conversation(system="s"), cfg, None)
@@ -71,7 +72,7 @@ def test_effort_reaches_axon_prompt_and_iteration_cap(out, monkeypatch):
         seen.append(kw)
         return iter([Chunk("ok")])
 
-    monkeypatch.setattr(server.litellm, "completion", fake_completion)
+    monkeypatch.setattr(litellm, "completion", fake_completion)
     cfg = _config()
     server._set_model(cfg, "axon-1")
     cfg.effort = "high"

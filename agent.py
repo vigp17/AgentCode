@@ -10,6 +10,7 @@ import os
 import json
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
@@ -358,6 +359,58 @@ def _run_subagents(tasks: list[str], config: AgentConfig, parent_silent: bool = 
     return "\n\n---\n\n".join(parts)
 
 
+# ── Streaming completion with retry ───────────────────────────────────────────
+
+# Network blips and provider hiccups (e.g. "SSL: bad record mac", 502/503,
+# rate limits) — worth another try. Auth, bad-request and context-length
+# errors are not.
+TRANSIENT_ERRORS = tuple(
+    getattr(litellm.exceptions, name) for name in (
+        "APIConnectionError", "Timeout", "RateLimitError",
+        "InternalServerError", "ServiceUnavailableError",
+    ) if hasattr(litellm.exceptions, name)
+)
+RETRY_DELAYS = (2, 5, 15)  # seconds before each retry
+
+
+def stream_completion(on_text: Callable[[str], None], **kwargs) -> tuple[str, dict, object]:
+    """Call litellm with stream=True and collect (text, tool_calls, usage).
+
+    Retries transient errors, but only while nothing has been shown yet —
+    once text has streamed to the user, a retry would repeat it, so the
+    error is raised instead.
+    """
+    for attempt in range(len(RETRY_DELAYS) + 1):
+        full_text = ""
+        tool_calls: dict[int, dict] = {}  # index → {id, name, arguments}
+        usage = None
+        try:
+            for chunk in litellm.completion(stream=True, **kwargs):
+                if getattr(chunk, "usage", None):
+                    usage = chunk.usage
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    full_text += delta.content
+                    on_text(delta.content)
+                for tc in delta.tool_calls or []:
+                    slot = tool_calls.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
+                    if tc.id:
+                        slot["id"] = tc.id
+                    if tc.function:
+                        if tc.function.name:
+                            slot["name"] += tc.function.name
+                        if tc.function.arguments:
+                            slot["arguments"] += tc.function.arguments
+            return full_text, tool_calls, usage
+        except TRANSIENT_ERRORS:
+            if full_text or attempt == len(RETRY_DELAYS):
+                raise
+            time.sleep(RETRY_DELAYS[attempt])
+    raise AssertionError("unreachable")
+
+
 # ── Agentic loop ──────────────────────────────────────────────────────────────
 
 def run_agent_loop(
@@ -392,51 +445,21 @@ def run_agent_loop(
     tool_names = {t["function"]["name"] for t in all_tools}
 
     for _ in range(config.max_iterations):
-        stream = litellm.completion(
+        if not silent:
+            console.print()
+
+        def show(text: str) -> None:
+            if not silent:
+                console.print(text, end="", markup=False, highlight=False)
+
+        full_text, tool_calls_accum, usage = stream_completion(
+            show,
             **finetuned.completion_kwargs(model),
             messages=[{"role": "system", "content": conversation.system}, *conversation.messages],
             tools=all_tools,
             tool_choice="auto",
-            stream=True,
             stream_options={"include_usage": True},
         )
-
-        full_text = ""
-        tool_calls_accum: dict[int, dict] = {}  # index → {id, name, arguments}
-        usage = None
-
-        if not silent:
-            console.print()
-
-        for chunk in stream:
-            # Capture usage from the final chunk
-            if hasattr(chunk, "usage") and chunk.usage:
-                usage = chunk.usage
-
-            if not chunk.choices:
-                continue
-
-            delta = chunk.choices[0].delta
-
-            # Stream text tokens live
-            if delta.content:
-                full_text += delta.content
-                if not silent:
-                    console.print(delta.content, end="", markup=False, highlight=False)
-
-            # Accumulate tool call chunks (arguments arrive in pieces)
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if idx not in tool_calls_accum:
-                        tool_calls_accum[idx] = {"id": "", "name": "", "arguments": ""}
-                    if tc.id:
-                        tool_calls_accum[idx]["id"] = tc.id
-                    if tc.function:
-                        if tc.function.name:
-                            tool_calls_accum[idx]["name"] += tc.function.name
-                        if tc.function.arguments:
-                            tool_calls_accum[idx]["arguments"] += tc.function.arguments
 
         if not silent:
             console.print()
