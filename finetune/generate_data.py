@@ -2,8 +2,13 @@
 """
 Bootstrap training data by running AgentCode itself on a list of tasks.
 
-    python finetune/generate_data.py --tasks finetune/tasks.example.jsonl \\
-        --teacher <model> --out finetune/raw
+    python finetune/generate_data.py --tasks finetune/tasks.jsonl \\
+        --teacher <model> --out finetune/raw --workers 4
+
+finetune/tasks.jsonl (~400 tasks, from make_tasks.py) is the full set;
+tasks.example.jsonl is a 13-task sample for a quick trial. Finished tasks
+are recorded in <out>/done.txt, so re-running the same command resumes
+where it stopped (Ctrl-C, crash, laptop sleep).
 
 Each line of the tasks file is {"repo": "<path or git URL>", "task": "<prompt>"}.
 For every task the repo is copied into a throwaway directory, AgentCode runs
@@ -24,6 +29,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import shutil
@@ -33,6 +40,10 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def task_id(task: dict) -> str:
+    return hashlib.sha256(f"{task['repo']}\n{task['task']}".encode()).hexdigest()[:16]
 
 
 def checkout(repo: str, dest: Path) -> None:
@@ -75,16 +86,44 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=Path(__file__).resolve().parent / "raw")
     ap.add_argument("--timeout", type=int, default=900, help="seconds per task")
     ap.add_argument("--max-iterations", type=int, default=40)
+    ap.add_argument("--workers", type=int, default=1, help="tasks run in parallel")
+    ap.add_argument("--limit", type=int, help="only run the first N pending tasks (trial run)")
     args = ap.parse_args()
 
     args.out.mkdir(parents=True, exist_ok=True)
     tasks = [json.loads(line) for line in args.tasks.open() if line.strip()]
+    done_file = args.out / "done.txt"
+    done = set(done_file.read_text().split()) if done_file.exists() else set()
+    pending = [t for t in tasks if task_id(t) not in done][: args.limit]
+    n_done = sum(task_id(t) in done for t in tasks)
+    print(f"{len(tasks)} tasks, {n_done} already done, running {len(pending)} "
+          f"with {args.workers} worker(s)")
+
+    lock = threading.Lock()
     ok = 0
-    for i, task in enumerate(tasks, 1):
+
+    def one(task: dict) -> bool:
         good = run_task(task, args.teacher, args.out.resolve(), args.timeout, args.max_iterations)
-        ok += good
-        print(f"[{i}/{len(tasks)}] {'✓' if good else '✗'} {task['task'][:70]}")
-    print(f"\n{ok}/{len(tasks)} tasks finished. Trajectories in {args.out}")
+        with lock:
+            # Failed tasks are recorded too: re-running them rarely helps, and a
+            # resumed run should move on. Delete done.txt to retry everything.
+            with done_file.open("a") as f:
+                f.write(task_id(task) + "\n")
+        return good
+
+    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+        futures = {pool.submit(one, t): t for t in pending}
+        for i, fut in enumerate(as_completed(futures), 1):
+            task = futures[fut]
+            try:
+                good = fut.result()
+            except Exception as e:  # clone failure etc. — keep going
+                good = False
+                print(f"   ! {type(e).__name__}: {str(e)[:100]}")
+            ok += good
+            print(f"[{i}/{len(pending)}] {'✓' if good else '✗'} "
+                  f"[{task.get('category', '?')}] {task['task'][:64]}")
+    print(f"\n{ok}/{len(pending)} tasks finished. Trajectories in {args.out}")
     print(f"Next: python finetune/prepare_data.py --input {args.out}")
 
 

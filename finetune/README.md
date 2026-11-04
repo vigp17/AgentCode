@@ -40,18 +40,35 @@ Every turn that ends in a final answer is appended to
 `~/.agentcode/trajectories/YYYY-MM-DD.jsonl`. This is off by default because
 the files contain your prompts and code.
 
-**Bootstrapped.** Run AgentCode headless over a list of repos and tasks:
+**Bootstrapped.** `tasks.jsonl` has **398 ready-made tasks** across 50 real
+open-source repos (Python, JS/TS, Go and Rust):
+
+| Category | Tasks | Mostly trains |
+|----------|------:|---------------|
+| coding (low/medium effort) | 220 | axon-1 |
+| research (read-only, cited write-ups) | 127 | veda-1 |
+| long (multi-file, many steps) | 51 | tandav-1, axon-1 "high" |
+
+Do a trial on 5 tasks first, then run the whole set:
 
 ```bash
-python finetune/generate_data.py --tasks finetune/tasks.example.jsonl \
-    --teacher <litellm model string> --out finetune/raw
+python finetune/generate_data.py --tasks finetune/tasks.jsonl \
+    --teacher <litellm model string> --out finetune/raw --limit 5
+
+python finetune/generate_data.py --tasks finetune/tasks.jsonl \
+    --teacher <litellm model string> --out finetune/raw --workers 4
 ```
 
-`tasks.example.jsonl` has coding tasks for axon-1 and tandav-1, plus read-only
-research tasks for veda-1. To reach the plan's ~500 trajectories, write a few
-hundred tasks across varied repos. Each run uses a fresh copy of the repo, so
-running a task file twice with a sampling teacher also adds variety. Commands
-run with auto-approve, so do this in a container or VM.
+Finished tasks are recorded in `finetune/raw/done.txt`, so re-running the same
+command resumes where it stopped. Each task runs in a fresh copy of its repo
+with commands auto-approved, so **run this in a container or VM**. The agent
+installs each repo's dependencies itself. Expect a few minutes per task
+(roughly 2–4 hours for the full set at `--workers 4`). Teacher cost depends on
+its per-token price; at ~100k tokens per task, budget for ~40M tokens in total.
+
+To add repos or tasks, edit `make_tasks.py` (repo list, template pools and
+repo-specific tasks), then run `python finetune/make_tasks.py`.
+`tasks.example.jsonl` is a 13-task sample.
 
 > **Choosing a teacher model.** Anthropic's, OpenAI's and Google's terms
 > generally restrict using their models' outputs to train other models. That
