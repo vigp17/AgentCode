@@ -68,6 +68,9 @@ def log_turn(
                 "project": os.environ.get("AGENTCODE_TRAJECTORY_PROJECT")
                 or hashlib.sha256(project_dir.encode()).hexdigest()[:12],
                 "tool_calls": sum(len(m.get("tool_calls") or []) for m in turn_messages),
+                # Set by generate_data.py so resumed runs know which tasks are done.
+                **({"task": os.environ["AGENTCODE_TRAJECTORY_TASK"]}
+                   if os.environ.get("AGENTCODE_TRAJECTORY_TASK") else {}),
             },
         }
         with _lock, path.open("a") as f:

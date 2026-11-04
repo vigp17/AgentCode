@@ -653,8 +653,14 @@ def one_shot(prompt: str, config: AgentConfig):
     project_config = load_project_config(config.project_dir)
     system_prompt = build_system_prompt(config.project_dir, project_config["combined"])
     conversation = Conversation(system=system_prompt)
-    run_agent_loop(prompt, conversation, config)
+    result = run_agent_loop(prompt, conversation, config)
     display_cost_line(config)
+    if result.startswith("Reached max iterations"):
+        # Say so (and exit non-zero) so scripts can tell "stopped at the step
+        # limit" from "finished".
+        console.print(f"[warning]⚠ Stopped after {config.max_iterations} steps without "
+                      "finishing. Raise limits.max_iterations to allow more.[/warning]")
+        sys.exit(3)
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────

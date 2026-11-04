@@ -6,10 +6,11 @@ Bootstrap training data by running AgentCode itself on a list of tasks.
         --teacher <model> --out finetune/raw --workers 4
 
 finetune/tasks.jsonl (~400 tasks, from make_tasks.py) is the full set;
-tasks.example.jsonl is a 13-task sample for a quick trial. Finished tasks
-are recorded in <out>/done.txt, so re-running the same command resumes
-where it stopped (Ctrl-C, crash, laptop sleep); failed tasks are retried.
-Each failed task's output is saved to <out>/logs/<id>.log.
+tasks.example.jsonl is a 13-task sample for a quick trial. A task counts as
+done only when it produced a training trajectory (saved to
+<out>/trajectories.jsonl, tagged with the task's id), so re-running the same
+command resumes where it stopped (Ctrl-C, crash, laptop sleep) and retries
+everything else. Each failed task's output is saved to <out>/logs/<id>.log.
 
 Each line of the tasks file is {"repo": "<path or git URL>", "task": "<prompt>"}.
 For every task the repo is copied into a throwaway directory, AgentCode runs
@@ -108,19 +109,39 @@ def task_env(tmp: Path, repo: str, use_venv: bool = True, with_pip: bool = True)
     return env
 
 
-def run_task(task: dict, teacher: str, out_dir: Path, timeout: int, max_iter: int,
-             use_venv: bool = True) -> tuple[bool, str]:
+STEP_LIMIT_EXIT = 3  # cli.py exits with this when it hits max_iterations
+
+
+def done_tasks(out_dir: Path) -> set[str]:
+    """Task ids that already have a trajectory in out_dir."""
+    done: set[str] = set()
+    for f in out_dir.glob("*.jsonl"):
+        for line in f.open():
+            try:
+                tid = json.loads(line).get("meta", {}).get("task")
+            except json.JSONDecodeError:
+                continue
+            if tid:
+                done.add(tid)
+    return done
+
+
+def run_task(task: dict, teacher: str, timeout: int, max_iter: int,
+             use_venv: bool = True) -> tuple[list[str], str, str]:
+    """Run one task. Returns (trajectory lines, full output, failure reason)."""
     repo, prompt = task["repo"], task["task"]
     with tempfile.TemporaryDirectory(prefix="agentcode-gen-") as tmp:
         work = Path(tmp) / "repo"
+        traj_dir = Path(tmp) / "traj"   # this task's own trajectories
         checkout(repo, work)
         (work / ".agentcode").mkdir(exist_ok=True)
         (work / ".agentcode" / "settings.json").write_text(json.dumps({
             "model": {"routing": False, "auto_discover": False},
-            "training": {"log_trajectories": True, "trajectories_dir": str(out_dir)},
+            "training": {"log_trajectories": True, "trajectories_dir": str(traj_dir)},
             "limits": {"max_iterations": max_iter},
         }))
         env = task_env(Path(tmp), repo, use_venv)
+        env["AGENTCODE_TRAJECTORY_TASK"] = task_id(task)
         # -I: AgentCode's own interpreter ignores PYTHONPATH / user site, so
         # nothing the agent sets up can shadow AgentCode's dependencies.
         cmd = [sys.executable, "-I", str(REPO_ROOT / "cli.py"), "-y", "--no-route",
@@ -128,11 +149,17 @@ def run_task(task: dict, teacher: str, out_dir: Path, timeout: int, max_iter: in
         try:
             r = subprocess.run(cmd, env=env, timeout=timeout, capture_output=True, text=True)
         except subprocess.TimeoutExpired:
-            return False, f"timed out after {timeout}s"
+            return [], "", f"timed out after {timeout}s (raise --timeout)"
         output = f"$ {' '.join(cmd[:6])} ...\n--- stdout ---\n{r.stdout}\n--- stderr ---\n{r.stderr}"
+        lines = [ln for f in sorted(traj_dir.glob("*.jsonl")) for ln in f.read_text().splitlines()
+                 if ln.strip()]
+        if lines:
+            return lines, output, ""
+        if r.returncode == STEP_LIMIT_EXIT:
+            return [], output, f"hit the {max_iter}-step limit before finishing (raise --max-iterations)"
         if r.returncode == 0:
-            return True, output
-        return False, output
+            return [], output, "finished without a final answer, so no trajectory was saved"
+        return [], output, last_error(output)
 
 
 def main() -> None:
@@ -141,7 +168,7 @@ def main() -> None:
     ap.add_argument("--teacher", required=True, help="litellm model string for the teacher")
     ap.add_argument("--out", type=Path, default=Path(__file__).resolve().parent / "raw")
     ap.add_argument("--timeout", type=int, default=900, help="seconds per task")
-    ap.add_argument("--max-iterations", type=int, default=40)
+    ap.add_argument("--max-iterations", type=int, default=50)
     ap.add_argument("--workers", type=int, default=1, help="tasks run in parallel")
     ap.add_argument("--limit", type=int, help="only run the first N pending tasks (trial run)")
     ap.add_argument("--skip-check", action="store_true", help="don't test the teacher first")
@@ -153,8 +180,7 @@ def main() -> None:
 
     args.out.mkdir(parents=True, exist_ok=True)
     tasks = [json.loads(line) for line in args.tasks.open() if line.strip()]
-    done_file = args.out / "done.txt"
-    done = set(done_file.read_text().split()) if done_file.exists() else set()
+    done = done_tasks(args.out)
     pending = [t for t in tasks if task_id(t) not in done][: args.limit]
     n_done = sum(task_id(t) in done for t in tasks)
     print(f"{len(tasks)} tasks, {n_done} already done, running {len(pending)} "
@@ -165,17 +191,19 @@ def main() -> None:
 
     log_dir = args.out / "logs"
 
+    out_file = args.out / "trajectories.jsonl"
+
     def one(task: dict) -> tuple[bool, str]:
-        good, output = run_task(task, args.teacher, args.out.resolve(), args.timeout,
-                                args.max_iterations, use_venv=not args.no_task_venv)
-        if good:
-            with lock, done_file.open("a") as f:
-                f.write(task_id(task) + "\n")
+        lines, output, why = run_task(task, args.teacher, args.timeout, args.max_iterations,
+                                      use_venv=not args.no_task_venv)
+        if lines:
+            with lock, out_file.open("a") as f:
+                f.write("\n".join(lines) + "\n")
             return True, ""
-        # Failures aren't marked done, so the next run retries them.
+        # No trajectory → not done, so the next run retries it.
         log_dir.mkdir(exist_ok=True)
         (log_dir / f"{task_id(task)}.log").write_text(f"{task['repo']}\n{task['task']}\n\n{output}")
-        return False, last_error(output)
+        return False, why
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
         futures = {pool.submit(one, t): t for t in pending}
