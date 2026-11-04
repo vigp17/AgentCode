@@ -45,9 +45,12 @@ MODELS = ("axon-1", "tandav-1", "veda-1")
 # Must match finetuned.effort_system_suffix() — server.py appends exactly this
 # to axon-1's system prompt at inference (a test keeps them in sync).
 EFFORT_SUFFIX = "\n\n<effort>{effort}</effort>"
-# Effort a trajectory "needed", by tool calls. Aligned with the server's
-# iteration caps for each level (8 / 25 / 40).
-EFFORT_BY_TOOL_CALLS = ((2, "low"), (8, "medium"))  # else "high"
+# Effort a trajectory "needed", by tool calls. The cut-offs come from the
+# data (thirds of the call-count distribution, see effort_thresholds), capped
+# by the server's per-level step limits so a "low" example never needs more
+# steps than a low-effort turn is allowed at inference.
+EFFORT_STEP_LIMITS = {"low": 8, "medium": 25}  # must match finetuned.EFFORT_MAX_ITERATIONS
+EFFORT_BY_TOOL_CALLS = ((2, "low"), (8, "medium"))  # fallback when there's no data
 
 READ_ONLY_TOOLS = {
     "read_file", "list_directory", "search_files", "search_text",
@@ -150,11 +153,25 @@ def n_chars(rec: dict) -> int:
     return sum(len(str(m.get("content") or "")) for m in rec["messages"])
 
 
-def effort_for(rec: dict) -> str:
+def effort_thresholds(recs: list[dict]) -> tuple[int, int]:
+    """(low_max, medium_max) tool calls that split recs into roughly equal
+    thirds — a thorough teacher uses several calls even for easy questions,
+    so fixed cut-offs left almost no "low" examples (7 of 285)."""
+    counts = sorted(n_tool_calls(r) for r in recs)
+    if len(counts) < 3:
+        return EFFORT_BY_TOOL_CALLS[0][0], EFFORT_BY_TOOL_CALLS[1][0]
+    low = min(counts[len(counts) // 3 - 1], EFFORT_STEP_LIMITS["low"])
+    med = min(counts[2 * len(counts) // 3 - 1], EFFORT_STEP_LIMITS["medium"])
+    return low, max(med, low + 1)
+
+
+def effort_for(rec: dict, thresholds: tuple[int, int] | None = None) -> str:
+    low, med = thresholds or (EFFORT_BY_TOOL_CALLS[0][0], EFFORT_BY_TOOL_CALLS[1][0])
     n = n_tool_calls(rec)
-    for limit, level in EFFORT_BY_TOOL_CALLS:
-        if n <= limit:
-            return level
+    if n <= low:
+        return "low"
+    if n <= med:
+        return "medium"
     return "high"
 
 
@@ -212,10 +229,10 @@ def fits(rec: dict, data_cfg: dict) -> bool:
     return True
 
 
-def with_effort_tag(rec: dict) -> dict:
+def with_effort_tag(rec: dict, thresholds: tuple[int, int] | None = None) -> dict:
     """Copy of rec with the effort tag appended to the system prompt."""
     msgs = [dict(m) for m in rec["messages"]]
-    level = effort_for(rec)
+    level = effort_for(rec, thresholds)
     msgs[0]["content"] = (msgs[0]["content"] or "") + EFFORT_SUFFIX.format(effort=level)
     return {**rec, "messages": msgs, "meta": {**rec["meta"], "effort": level}}
 
@@ -224,7 +241,11 @@ def build_slice(recs: list[dict], cfg: dict) -> list[dict]:
     data_cfg = cfg.get("data", {})
     subset = [r for r in recs if fits(r, data_cfg)]
     if data_cfg.get("effort_tags"):
-        subset = [with_effort_tag(r) for r in subset]
+        th = tuple(data_cfg["effort_thresholds"]) if data_cfg.get("effort_thresholds") \
+            else effort_thresholds(subset)
+        subset = [with_effort_tag(r, th) for r in subset]
+        for r in subset:
+            r["meta"]["effort_thresholds"] = th
     return subset
 
 
@@ -291,7 +312,9 @@ def main() -> None:
         extra = ""
         if cfg.get("data", {}).get("effort_tags"):
             counts = {lvl: sum(r["meta"]["effort"] == lvl for r in subset) for lvl in ("low", "medium", "high")}
-            extra = "  effort " + " ".join(f"{k}={v}" for k, v in counts.items())
+            th = subset[0]["meta"]["effort_thresholds"] if subset else ("-", "-")
+            extra = ("  effort " + " ".join(f"{k}={v}" for k, v in counts.items())
+                     + f"  (low ≤{th[0]} calls, medium ≤{th[1]})")
         print(f"  {cfg['name']:<10} train={len(train):>6}  eval={len(ev):>5}{extra}  → {out_dir}")
         if not subset and cfg.get("data", {}).get("research_only"):
             print("             (no research trajectories yet: add research tasks to generate_data.py)")

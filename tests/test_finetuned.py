@@ -252,3 +252,18 @@ def test_ecosystem_endpoint_env(monkeypatch):
     assert rows["axon-1"].available and not rows["tandav-1"].available
     assert finetuned.completion_kwargs("axon-1")["api_base"] == "http://localhost:11434/v1"
     assert ModelRouter.detect_provider("axon-1") == "agentcode"
+
+
+def test_effort_is_balanced_from_the_data():
+    # A thorough teacher: nobody uses fewer than 3 calls.
+    recs = [_rec(n) for n in [3, 3, 4, 4, 5, 6, 9, 10, 12, 15, 20, 30]]
+    low, med = prepare_data.effort_thresholds(recs)
+    levels = [prepare_data.effort_for(r, (low, med)) for r in recs]
+    assert levels.count("low") == 4 and levels.count("medium") == 4 and levels.count("high") == 4
+    assert low <= 8 and med <= 25  # never above the server's per-level step limits
+
+
+def test_effort_thresholds_respect_step_limits():
+    recs = [_rec(n) for n in [20, 25, 30, 35, 40, 45]]
+    low, med = prepare_data.effort_thresholds(recs)
+    assert low == 8 and med == 25

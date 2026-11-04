@@ -376,6 +376,10 @@ def main() -> None:
     ap.add_argument("--max-steps", type=int, default=-1, help="cap steps (smoke test)")
     ap.add_argument("--colab", action="store_true",
                     help="free Colab/Kaggle T4 preset: 4-bit, shorter context")
+    ap.add_argument("--max-seq-length", type=int,
+                    help="override the config's context length (longer sessions are skipped)")
+    ap.add_argument("--no-merged", action="store_true",
+                    help="skip the 16-bit merged export (~28GB for 14B); keep adapter + GGUF")
     ap.add_argument("--push-to-hub", metavar="REPO",
                     help="upload the adapter (and GGUF) to the HF Hub, e.g. you/axon-1 (needs HF_TOKEN)")
     args = ap.parse_args()
@@ -384,6 +388,10 @@ def main() -> None:
     if args.colab:
         cfg["train"]["load_in_4bit"] = True
         cfg["train"].update({k: v for k, v in cfg.get("colab", {}).items() if k != "note"})
+        cfg["_skip_merged"] = True
+    if args.max_seq_length:
+        cfg["train"]["max_seq_length"] = args.max_seq_length
+    if args.no_merged:
         cfg["_skip_merged"] = True
     data_dir = args.data or HERE / "data" / cfg["name"]
     if args.backend == "openai":
