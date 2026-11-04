@@ -154,17 +154,17 @@ than guessing.
 ### AgentCode's own fine-tuned models
 
 AgentCode has three fine-tuned models, one per routing tier. They are LoRA
-fine-tunes of Qwen2.5-Coder trained on AgentCode tool-calling trajectories,
+fine-tunes of the Qwen3 family trained on AgentCode tool-calling trajectories,
 and you can self-host them for $0 per token:
 
-| Model | Base | Tier |
-|-------|------|------|
-| `agentcode-light`  | Qwen2.5-Coder-1.5B-Instruct | light |
-| `agentcode-medium` | Qwen2.5-Coder-7B-Instruct   | medium |
-| `agentcode-heavy`  | Qwen2.5-Coder-32B-Instruct  | heavy |
+| Model | Base | Size | Tier |
+|-------|------|------|------|
+| `agentcode-light`  | Qwen3-4B-Instruct-2507      | 4B dense | light |
+| `agentcode-medium` | Qwen3-14B                   | 14B dense | medium |
+| `agentcode-heavy`  | Qwen3-Next-80B-A3B-Instruct | 80B MoE (3B active) | heavy |
 
 [`finetune/`](finetune/README.md) has the full pipeline: collect trajectories,
-prepare them, train with Unsloth (or OpenAI hosted fine-tuning), serve with
+prepare them, train with Unsloth or PEFT (or OpenAI hosted fine-tuning), serve with
 vLLM and evaluate. Once a model is served, point AgentCode at it:
 
 ```bash

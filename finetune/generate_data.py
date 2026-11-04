@@ -15,7 +15,7 @@ dir to prepare_data.py --input.
 
 ⚠  Teacher choice: most closed-model terms of service (Anthropic, OpenAI,
    Google) restrict using their outputs to train other models. Use an
-   open-weight teacher whose license allows it (e.g. a large Qwen-Coder or
+   open-weight teacher whose license allows it (e.g. a large Qwen3-Coder or
    DeepSeek model via Together/Fireworks/your own vLLM — any litellm model
    string works), or check your agreement with the provider first.
 """

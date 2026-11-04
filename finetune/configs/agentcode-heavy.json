@@ -1,10 +1,16 @@
 {
   "name": "agentcode-heavy",
   "tier": "heavy",
-  "base_model": "Qwen/Qwen2.5-Coder-32B-Instruct",
-  "description": "Multi-file, long-horizon agent work. Trained on every trajectory, including the longest.",
+  "base_model": "Qwen/Qwen3-Next-80B-A3B-Instruct",
+  "params": "80B MoE (3B active per token)",
+  "description": "Multi-file, long-horizon agent work. Trained on every trajectory, including the longest. MoE: 80B of knowledge at roughly 3B-per-token inference cost.",
   "data": {"max_tool_calls": null, "max_chars": 120000},
-  "lora": {"r": 64, "alpha": 128, "dropout": 0.0},
+  "lora": {
+    "r": 32, "alpha": 64, "dropout": 0.0,
+    "_target_modules_note": "Attention plus the shared expert. Adapting all 512 routed experts multiplies adapter size for little gain. Check the names with print(model) before a long run.",
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj",
+                       "shared_expert.gate_proj", "shared_expert.up_proj", "shared_expert.down_proj"]
+  },
   "train": {
     "max_seq_length": 32768,
     "load_in_4bit": true,
@@ -14,5 +20,5 @@
     "gradient_accumulation_steps": 16,
     "warmup_ratio": 0.03
   },
-  "hardware": "1x 80GB GPU (A100/H100), ~10h per 5k examples"
+  "hardware": "train: 1x 80GB GPU (H100/A100) with 4-bit QLoRA, 2x 80GB for 32k context. serve: 2x 80GB (bf16) or 1x 80GB (FP8)"
 }

@@ -150,3 +150,38 @@ def test_tier_slices():
     assert not prepare_data.fits_tier(rec, {"max_tool_calls": 0, "max_chars": None})
     for tier in ("light", "medium", "heavy"):
         assert prepare_data.load_config(tier)["name"] == f"agentcode-{tier}"
+
+
+# ── model sizes & training loss mask ──────────────────────────────────────────
+
+import train  # noqa: E402  (finetune/ is on sys.path above; no GPU deps at import)
+
+
+def test_bases_match_requested_sizes():
+    bases = {m.tier: m.base_model for m in finetuned.all_models(include_unconfigured=True)}
+    assert bases == {
+        "light": "Qwen/Qwen3-4B-Instruct-2507",            # 4B
+        "medium": "Qwen/Qwen3-14B",                        # ~12B class
+        "heavy": "Qwen/Qwen3-Next-80B-A3B-Instruct",       # 80B MoE
+    }
+    for tier, base in bases.items():  # registry and training configs agree
+        assert prepare_data.load_config(tier)["base_model"] == base
+
+
+def test_assistant_spans_cover_only_replies():
+    text = ("<|im_start|>system\nS<|im_end|>\n<|im_start|>user\nQ<|im_end|>\n"
+            "<|im_start|>assistant\n<tool_call>{}</tool_call><|im_end|>\n"
+            "<|im_start|>user\n<tool_response>R</tool_response><|im_end|>\n"
+            "<|im_start|>assistant\nDone.<|im_end|>\n")
+    spans = [text[a:b] for a, b in train.assistant_spans(text)]
+    assert spans == ["<tool_call>{}</tool_call><|im_end|>", "Done.<|im_end|>"]
+
+
+def test_mask_labels_ignores_context_tokens():
+    text = "<|im_start|>user\nhi<|im_end|><|im_start|>assistant\nyo<|im_end|>"
+    # Fake one-token-per-char tokenizer.
+    ids = list(range(len(text)))
+    offsets = [(i, i + 1) for i in range(len(text))]
+    labels = train.mask_labels(ids, offsets, train.assistant_spans(text))
+    kept = "".join(text[i] for i, lab in enumerate(labels) if lab != -100)
+    assert kept == "yo<|im_end|>"

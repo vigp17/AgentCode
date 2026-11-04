@@ -3,9 +3,12 @@ AgentCode — fine-tuned model registry.
 
 AgentCode ships three of its own fine-tuned models, one per routing tier:
 
-    agentcode-light   Qwen2.5-Coder-1.5B-Instruct + LoRA  quick answers, cheap edits
-    agentcode-medium  Qwen2.5-Coder-7B-Instruct   + LoRA  everyday coding tasks
-    agentcode-heavy   Qwen2.5-Coder-32B-Instruct  + LoRA  multi-file / long-horizon work
+    agentcode-light   Qwen3-4B-Instruct-2507        (4B dense)       quick answers, cheap edits
+    agentcode-medium  Qwen3-14B                     (14B dense)      everyday coding tasks
+    agentcode-heavy   Qwen3-Next-80B-A3B-Instruct   (80B MoE, 3B active)  multi-file / long-horizon work
+
+All three share Qwen's chat template and <tool_call> format, so one training
+recipe, one vLLM tool parser and one fallback parser cover them all.
 
 They are trained on AgentCode's own tool-calling trajectories (see finetune/),
 so they speak AgentCode's tool schema natively. Weights are served from any
@@ -63,16 +66,16 @@ class FineTunedModel:
 
 BUILTIN_FINETUNES: list[FineTunedModel] = [
     FineTunedModel(
-        name="agentcode-light", tier="light", label="AgentCode Light (1.5B)",
-        base_model="Qwen/Qwen2.5-Coder-1.5B-Instruct",
+        name="agentcode-light", tier="light", label="AgentCode Light (4B)",
+        base_model="Qwen/Qwen3-4B-Instruct-2507",
     ),
     FineTunedModel(
-        name="agentcode-medium", tier="medium", label="AgentCode Medium (7B)",
-        base_model="Qwen/Qwen2.5-Coder-7B-Instruct",
+        name="agentcode-medium", tier="medium", label="AgentCode Medium (14B)",
+        base_model="Qwen/Qwen3-14B",
     ),
     FineTunedModel(
-        name="agentcode-heavy", tier="heavy", label="AgentCode Heavy (32B)",
-        base_model="Qwen/Qwen2.5-Coder-32B-Instruct",
+        name="agentcode-heavy", tier="heavy", label="AgentCode Heavy (80B MoE)",
+        base_model="Qwen/Qwen3-Next-80B-A3B-Instruct",
     ),
 ]
 

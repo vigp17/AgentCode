@@ -1,10 +1,15 @@
 {
   "name": "agentcode-medium",
   "tier": "medium",
-  "base_model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "base_model": "Qwen/Qwen3-14B",
+  "params": "14B dense",
   "description": "Everyday coding: write, fix, test, refactor a file or two.",
+  "chat_template_kwargs": {"enable_thinking": false},
   "data": {"max_tool_calls": 10, "max_chars": 64000},
-  "lora": {"r": 32, "alpha": 64, "dropout": 0.0},
+  "lora": {
+    "r": 32, "alpha": 64, "dropout": 0.0,
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  },
   "train": {
     "max_seq_length": 16384,
     "load_in_4bit": true,
@@ -14,5 +19,5 @@
     "gradient_accumulation_steps": 8,
     "warmup_ratio": 0.03
   },
-  "hardware": "1x 24-48GB GPU (A10/L40S/RTX 4090), ~3h per 5k examples"
+  "hardware": "train: 1x 48GB GPU (L40S/A6000), 24GB at shorter seq length. serve: 1x 48GB GPU, or 1x 24GB with FP8/AWQ"
 }

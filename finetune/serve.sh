@@ -19,10 +19,12 @@ tier="${1:?usage: serve.sh light|medium|heavy [weights_dir]}"
 here="$(cd "$(dirname "$0")" && pwd)"
 weights="${2:-$here/out/agentcode-$tier/merged}"
 
+# Heavy is an 80B MoE: bf16 needs ~160GB, so it's split across 2 GPUs by
+# default. On one 80GB GPU use FP8: VLLM_EXTRA_ARGS="--quantization fp8" TP=1
 case "$tier" in
-  light)  port=8001; ctx=8192  ;;
-  medium) port=8002; ctx=16384 ;;
-  heavy)  port=8003; ctx=32768 ;;
+  light)  port=8001; ctx=8192;  tp="${TP:-1}" ;;
+  medium) port=8002; ctx=16384; tp="${TP:-1}" ;;
+  heavy)  port=8003; ctx=32768; tp="${TP:-2}" ;;
   *) echo "unknown tier: $tier" >&2; exit 1 ;;
 esac
 
@@ -35,6 +37,7 @@ exec vllm serve "$weights" \
   --served-model-name "agentcode-$tier" \
   --port "$port" \
   --max-model-len "$ctx" \
+  --tensor-parallel-size "$tp" \
   --enable-auto-tool-choice \
   --tool-call-parser hermes \
   ${VLLM_EXTRA_ARGS:-}
