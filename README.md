@@ -153,24 +153,25 @@ If you set a model AgentCode can't price (a typo, or one newer than your
 LiteLLM registry), it warns at startup and reports costs as `$0.00` rather
 than guessing.
 
-### AgentCode's own fine-tuned models
+### The AgentCode lineup
 
-AgentCode has three fine-tuned models, one per routing tier. They are LoRA
-fine-tunes of the Qwen3 family trained on AgentCode tool-calling trajectories,
-and you can self-host them for $0 per token:
+AgentCode has its own models. The three chat models are LoRA fine-tunes of
+Qwen bases trained on AgentCode tool-calling trajectories, and you can
+self-host them for $0 per token:
 
-| Model | Base | Size | Tier |
+| Model | Base | Size | Role |
 |-------|------|------|------|
-| `agentcode-light`  | Qwen3-4B-Instruct-2507      | 4B dense | light |
-| `agentcode-medium` | Qwen3-14B                   | 14B dense | medium |
-| `agentcode-heavy`  | Qwen3-Next-80B-A3B-Instruct | 80B MoE (3B active) | heavy |
+| `axon-1`   | Qwen2.5-Coder-14B-Instruct  | 14B dense | everyday coding, low/medium/high effort |
+| `tandav-1` | Qwen3-Next-80B-A3B-Instruct | 80B MoE (3B active) | hardest multi-file work, 50 steps |
+| `veda-1`   | Qwen3-14B                   | 14B dense | research, cited specs |
+| `chitra-1` | FLUX.1-schnell              | image | assets (for `/image`, coming) |
 
 [`finetune/`](finetune/README.md) has the full pipeline: collect trajectories,
 prepare them, train with Unsloth or PEFT (or OpenAI hosted fine-tuning), serve with
 vLLM and evaluate. Once a model is served, point AgentCode at it:
 
 ```bash
-AGENTCODE_FT_MEDIUM_API_BASE=http://localhost:8002/v1 agentcode --model agentcode-medium
+AGENTCODE_FT_AXON_1_API_BASE=http://localhost:8002/v1 agentcode --model axon-1
 ```
 
 ---
@@ -284,7 +285,7 @@ anytime with `/settings`.
 | `model.light/medium/heavy` | Override the model for a routing tier |
 | `model.auto_discover` | List every model your API keys can use (default `true`) |
 | `model.auto_tiers` | Route each tier to the newest discovered model of its class (default `true`) |
-| `finetuned` | Endpoints for `agentcode-light/medium/heavy` or your own fine-tunes ([details](finetune/README.md#5-connect-agentcode)) |
+| `finetuned` | Endpoints for `axon-1` / `tandav-1` / `veda-1` / `chitra-1` or your own fine-tunes ([details](finetune/README.md#5-connect-agentcode)) |
 | `training.log_trajectories` | Save finished turns as fine-tuning data (default `false`) |
 | `limits.*` | File-size, output, search, and iteration caps |
 | `hooks` | Same format as `hooks.json` (see Hooks) |

@@ -4,7 +4,7 @@ AgentCode — trajectory logging for fine-tuning.
 When settings.training.log_trajectories is true, every agent turn that ends in
 a final answer is appended to ~/.agentcode/trajectories/YYYY-MM-DD.jsonl in
 the OpenAI chat fine-tuning format (messages + tools). finetune/prepare_data.py
-turns these into train/eval splits for the agentcode-light/medium/heavy models.
+turns these into train/eval splits for axon-1, tandav-1 and veda-1.
 
 Turns that hit max_iterations or raised errors are not logged — we only want
 to teach the models trajectories that actually finished.

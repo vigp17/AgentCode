@@ -12,7 +12,7 @@ Supported models (via LiteLLM):
     claude-sonnet-5              # Anthropic Claude (default)
     gpt-5.6-terra                # OpenAI
     gemini/gemini-3.6-flash      # Google
-    agentcode-medium             # AgentCode's own fine-tune (self-hosted)
+    axon-1                       # AgentCode's own model (self-hosted)
     New models from Anthropic, OpenAI and Google are discovered automatically
     from your API keys — run /models to see them.
 """

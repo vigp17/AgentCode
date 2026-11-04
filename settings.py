@@ -57,7 +57,7 @@ class Settings:
     limits: LimitsSettings = field(default_factory=LimitsSettings)
     hooks: dict[str, str] = field(default_factory=dict)
     # Endpoints for AgentCode's fine-tuned models, keyed by model name —
-    # see finetuned.py. {"agentcode-medium": {"api_base": "http://gpu:8000/v1"}}
+    # see finetuned.py. {"axon-1": {"api_base": "http://gpu:8000/v1"}}
     finetuned: dict[str, dict] = field(default_factory=dict)
     training: TrainingSettings = field(default_factory=TrainingSettings)
 
@@ -204,7 +204,7 @@ limits.max_search_results     cap on results from search tools (default: 100)
 limits.max_iterations         max tool-call loops per turn (default: 25)
 hooks                         shell commands run before/after tool calls
                               keys: pre_<tool>, post_<tool>, pre_tool, post_tool
-finetuned                     endpoints for agentcode-light/medium/heavy fine-tunes
+finetuned                     endpoints for axon-1 / tandav-1 / veda-1 / chitra-1
 training.log_trajectories     save agent turns as fine-tuning data (default: false)\
 """
 

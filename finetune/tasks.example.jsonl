@@ -6,3 +6,8 @@
 {"repo": "https://github.com/encode/httpx", "task": "Find all TODO comments in the codebase and list them with file and line."}
 {"repo": "https://github.com/sindresorhus/slugify", "task": "Add a test for slugifying a string that contains only emoji, then run the tests."}
 {"repo": "https://github.com/expressjs/express", "task": "Refactor examples/auth to use async/await instead of callbacks, keeping behavior identical."}
+{"repo": "https://github.com/encode/httpx", "task": "Research how connection pooling works in this codebase. Read the relevant modules and write a short engineering spec of the design, citing file paths and line numbers for each claim. Do not modify any files."}
+{"repo": "https://github.com/pallets/click", "task": "Write a design document explaining how parameter parsing flows from the command line to callback arguments. Cite the files and functions involved. Read only; don't change code."}
+{"repo": "https://github.com/psf/requests", "task": "Investigate how authentication handlers are applied to a request and summarize it as a spec with citations (file:line) for every step. Read-only research task."}
+{"repo": "https://github.com/expressjs/express", "task": "Document how the router matches a path to middleware and route handlers. Produce a cited spec (file:line references) suitable for onboarding a new engineer. Do not edit files."}
+{"repo": "https://github.com/tiangolo/typer", "task": "Explain how type hints are converted into CLI options. Write a cited spec with file and line references for each part of the pipeline. Read-only."}

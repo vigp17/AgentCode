@@ -1,0 +1,27 @@
+{
+  "name": "axon-1",
+  "tier": "medium",
+  "base_model": "Qwen/Qwen2.5-Coder-14B-Instruct",
+  "params": "14B dense",
+  "description": "Unified code model: everyday coding, reads and surgical edits, with low/medium/high effort tags.",
+  "data": {
+    "max_tool_calls": 40,
+    "max_chars": 64000,
+    "effort_tags": true
+  },
+  "lora": {
+    "r": 32, "alpha": 64, "dropout": 0.0,
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  },
+  "train": {
+    "max_seq_length": 16384,
+    "load_in_4bit": true,
+    "epochs": 2,
+    "learning_rate": 1e-4,
+    "per_device_batch_size": 1,
+    "gradient_accumulation_steps": 16,
+    "warmup_ratio": 0.03
+  },
+  "colab": {"max_seq_length": 4096, "note": "Free T4 (16GB): 4-bit, shorter sequences. Use an L4/A100 runtime for the full 16k."},
+  "hardware": "train: 1x 24GB GPU (A10/L4/4090), or a Colab/Kaggle T4 at 4k context. serve: 1x 24GB GPU, or a 32GB Mac via Ollama (Q4_K_M)"
+}

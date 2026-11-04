@@ -70,7 +70,7 @@ Switch models mid-session from the dropdown in the chat panel. **The dropdown fi
 The dropdown also lists:
 
 - **Your OpenAI fine-tunes** (`ft:…` models), picked up from your account automatically.
-- **AgentCode's own fine-tuned models** (`agentcode-light`, `agentcode-medium`, `agentcode-heavy`), once you've pointed AgentCode at a server running them (for example `AGENTCODE_FT_MEDIUM_API_BASE=http://localhost:8002/v1` in your workspace `.env`). See [finetune/README.md](https://github.com/vigp17/AgentCode/blob/main/finetune/README.md).
+- **Your own extra fine-tunes** added under `finetuned` in `.agentcode/settings.json`. See [finetune/README.md](https://github.com/vigp17/AgentCode/blob/main/finetune/README.md).
 
 Any [LiteLLM model name](https://docs.litellm.ai/docs/providers) also works in the `agentcode.model` setting.
 

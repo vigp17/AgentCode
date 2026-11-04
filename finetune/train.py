@@ -1,33 +1,34 @@
 #!/usr/bin/env python3
 """
-Fine-tune one of AgentCode's three models.
-
-Open-weight (default) — LoRA on the Qwen3 family, on your own GPU:
+Fine-tune a model in the AgentCode lineup.
 
     pip install -r finetune/requirements.txt
-    python finetune/train.py light           # agentcode-light  (Qwen3 4B,        24GB GPU)
-    python finetune/train.py medium          # agentcode-medium (Qwen3 14B,       48GB GPU)
-    python finetune/train.py heavy           # agentcode-heavy  (Qwen3-Next 80B MoE, 80GB GPU)
-    python finetune/train.py light --gguf q4_k_m    # also export for Ollama
+    python finetune/train.py axon-1                  # 14B, 1x 24GB GPU
+    python finetune/train.py axon-1 --colab          # free Colab/Kaggle T4 (4k context)
+    python finetune/train.py veda-1                  # 14B research model
+    python finetune/train.py axon-1 --gguf q4_k_m    # also export GGUF for Ollama
+    python finetune/train.py axon-1 --push-to-hub you/axon-1   # adapter (+GGUF) to HF
 
-  Uses Unsloth when it supports the model, otherwise falls back to plain
-  transformers + PEFT (force either with --trainer unsloth|hf).
+    # tandav-1 (80B MoE) across GPUs with DeepSpeed ZeRO-2:
+    accelerate launch --num_processes 4 finetune/train.py tandav-1
+
+  Uses Unsloth when it supports the model on one GPU, otherwise transformers +
+  PEFT (always for multi-GPU / DeepSpeed). Force with --trainer unsloth|hf.
 
 Hosted — OpenAI's fine-tuning API, no GPU needed:
 
-    python finetune/train.py medium --backend openai --base <fine-tunable gpt model>
-
-  When the job finishes, the resulting `ft:` model appears in AgentCode's
-  model picker automatically (model discovery lists your fine-tunes).
+    python finetune/train.py axon-1 --backend openai --base <fine-tunable gpt model>
 
 Reads finetune/data/<model>/{train,eval}.jsonl from prepare_data.py and writes
-finetune/out/<model>/{lora,merged}. Serve `merged` with serve.sh.
+finetune/out/<model>/{lora,merged[,gguf]}. Serve `merged` with serve.sh, or the
+GGUF with Ollama.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -35,7 +36,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from prepare_data import load_config  # noqa: E402
 
-# Qwen chat template markers (ChatML, shared by all three bases). Loss is
+# Qwen chat template markers (ChatML, shared by the axon-1, tandav-1 and veda-1 bases). Loss is
 # computed only on assistant turns: system prompts, user messages and tool
 # results (which Qwen renders inside user turns) are context, not targets.
 INSTRUCTION_PART = "<|im_start|>user\n"
@@ -105,9 +106,27 @@ def mask_labels(input_ids: list[int], offsets: list[tuple[int, int]], spans) -> 
     return labels
 
 
+def world_size() -> int:
+    return int(os.environ.get("WORLD_SIZE", "1"))
+
+
+def _precision() -> dict:
+    """bf16 where the GPU has it (Ampere+), fp16 otherwise (Colab T4, P100)."""
+    try:
+        import torch
+        if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+            return {"bf16": True}
+    except ImportError:
+        pass
+    return {"fp16": True}
+
+
 def _sft_config(cfg: dict, out_dir: Path, max_steps: int, has_eval: bool, **extra):
     from trl import SFTConfig
     t = cfg["train"]
+    ds = t.get("deepspeed")
+    if ds and world_size() > 1:
+        extra["deepspeed"] = str(HERE / ds)
     args = dict(
         output_dir=str(out_dir / "checkpoints"),
         num_train_epochs=t["epochs"],
@@ -122,8 +141,8 @@ def _sft_config(cfg: dict, out_dir: Path, max_steps: int, has_eval: bool, **extr
         logging_steps=10,
         save_strategy="epoch",
         eval_strategy="epoch" if has_eval else "no",
-        bf16=True,
         report_to="none",
+        **_precision(),
         seed=17,
         **extra,
     )
@@ -144,6 +163,32 @@ def _load_rows(cfg, data_dir, tokenizer):
     return train_rows, eval_rows
 
 
+def _push(cfg, model, tokenizer, repo: str | None, gguf_dir: Path | None = None) -> None:
+    """Upload the LoRA adapter (and GGUF if exported) to the Hugging Face Hub."""
+    if not repo:
+        return
+    token = os.environ.get("HF_TOKEN")
+    model.push_to_hub(repo, token=token, private=True)
+    tokenizer.push_to_hub(repo, token=token, private=True)
+    if gguf_dir and gguf_dir.exists():
+        from huggingface_hub import HfApi
+        HfApi(token=token).upload_folder(folder_path=str(gguf_dir), repo_id=f"{repo}-GGUF",
+                                        repo_type="model", create_pr=False)
+    print(f"  pushed to https://huggingface.co/{repo} (private)")
+
+
+def write_modelfile(gguf_dir: Path) -> Path | None:
+    """Minimal Ollama Modelfile for the exported GGUF (Ollama reads the chat
+    template from the GGUF metadata). Then: ollama create <name> -f Modelfile"""
+    ggufs = sorted(gguf_dir.glob("*.gguf"))
+    if not ggufs:
+        return None
+    path = gguf_dir / "Modelfile"
+    if not path.exists():
+        path.write_text(f"FROM ./{ggufs[-1].name}\nPARAMETER num_ctx 16384\n")
+    return path
+
+
 def _write_meta(cfg, out_dir):
     (out_dir / "agentcode.json").write_text(json.dumps(
         {"name": cfg["name"], "tier": cfg["tier"], "base_model": cfg["base_model"],
@@ -157,7 +202,10 @@ class UnslothUnavailable(Exception):
     pass
 
 
-def train_unsloth(cfg: dict, data_dir: Path, out_dir: Path, gguf: str | None, max_steps: int) -> None:
+def train_unsloth(cfg: dict, data_dir: Path, out_dir: Path, gguf: str | None, max_steps: int,
+                  push: str | None = None) -> None:
+    if world_size() > 1:
+        raise UnslothUnavailable("multi-GPU run; Unsloth trains on one GPU")
     try:
         from unsloth import FastLanguageModel
         from unsloth.chat_templates import train_on_responses_only
@@ -200,16 +248,25 @@ def train_unsloth(cfg: dict, data_dir: Path, out_dir: Path, gguf: str | None, ma
 
     model.save_pretrained(str(out_dir / "lora"))
     tokenizer.save_pretrained(str(out_dir / "lora"))
-    # Merged 16-bit weights: what vLLM / SGLang serve (see serve.sh).
-    model.save_pretrained_merged(str(out_dir / "merged"), tokenizer, save_method="merged_16bit")
+    # Merged 16-bit weights: what vLLM / SGLang serve (see serve.sh). Skipped
+    # with --colab: ~28GB for a 14B model, and Colab users take the GGUF.
+    if not cfg.get("_skip_merged"):
+        model.save_pretrained_merged(str(out_dir / "merged"), tokenizer, save_method="merged_16bit")
     if gguf:
+        if push:
+            # Creates <repo>-GGUF on the Hub with the quantized file.
+            model.push_to_hub_gguf(f"{push}-GGUF", tokenizer, quantization_method=gguf,
+                                   token=os.environ.get("HF_TOKEN"))
         model.save_pretrained_gguf(str(out_dir / "gguf"), tokenizer, quantization_method=gguf)
+        write_modelfile(out_dir / "gguf")
+    _push(cfg, model, tokenizer, push)
     _write_meta(cfg, out_dir)
 
 
 # ── Open-weight: plain transformers + PEFT (fallback) ─────────────────────────
 
-def train_hf(cfg: dict, data_dir: Path, out_dir: Path, gguf: str | None, max_steps: int) -> None:
+def train_hf(cfg: dict, data_dir: Path, out_dir: Path, gguf: str | None, max_steps: int,
+             push: str | None = None) -> None:
     import torch
     from datasets import Dataset
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
@@ -223,9 +280,14 @@ def train_hf(cfg: dict, data_dir: Path, out_dir: Path, gguf: str | None, max_ste
         load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_use_double_quant=True,
         bnb_4bit_compute_dtype=torch.bfloat16,
     ) if t.get("load_in_4bit", True) else None
+    dtype = torch.bfloat16 if _precision().get("bf16") else torch.float16
+    if world_size() > 1:
+        # Data-parallel (DeepSpeed ZeRO-2): one full 4-bit copy per GPU.
+        device_map = {"": int(os.environ.get("LOCAL_RANK", "0"))}
+    else:
+        device_map = "auto"  # single process: spread a big model across visible GPUs
     model = AutoModelForCausalLM.from_pretrained(
-        cfg["base_model"], quantization_config=quant, torch_dtype=torch.bfloat16,
-        device_map="auto",  # spreads an 80B MoE across all visible GPUs
+        cfg["base_model"], quantization_config=quant, torch_dtype=dtype, device_map=device_map,
     )
     if quant:
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
@@ -258,14 +320,17 @@ def train_hf(cfg: dict, data_dir: Path, out_dir: Path, gguf: str | None, max_ste
                          dataset_kwargs={"skip_prepare_dataset": True}),
     )
     trainer.train()
+    if not trainer.is_world_process_zero():
+        return  # only rank 0 saves and merges
 
     model.save_pretrained(str(out_dir / "lora"))
     tokenizer.save_pretrained(str(out_dir / "lora"))
+    _push(cfg, model, tokenizer, push)
     # Merge in bf16 (not on top of the 4-bit weights) for serving.
     del model, trainer
     torch.cuda.empty_cache()
     from peft import PeftModel
-    base = AutoModelForCausalLM.from_pretrained(cfg["base_model"], torch_dtype=torch.bfloat16,
+    base = AutoModelForCausalLM.from_pretrained(cfg["base_model"], torch_dtype=dtype,
                                                 device_map="auto")
     merged = PeftModel.from_pretrained(base, str(out_dir / "lora")).merge_and_unload()
     merged.save_pretrained(str(out_dir / "merged"), safe_serialization=True)
@@ -300,7 +365,7 @@ def train_openai(cfg: dict, data_dir: Path, base: str | None) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("model", help="light | medium | heavy (or agentcode-<tier>)")
+    ap.add_argument("model", help="axon-1 | tandav-1 | veda-1")
     ap.add_argument("--backend", choices=["local", "openai"], default="local")
     ap.add_argument("--trainer", choices=["auto", "unsloth", "hf"], default="auto",
                     help="local trainer: auto tries Unsloth, then transformers+PEFT")
@@ -309,9 +374,17 @@ def main() -> None:
     ap.add_argument("--out", type=Path, help="output dir (default finetune/out/<model>)")
     ap.add_argument("--gguf", help="also export GGUF for Ollama, e.g. q4_k_m")
     ap.add_argument("--max-steps", type=int, default=-1, help="cap steps (smoke test)")
+    ap.add_argument("--colab", action="store_true",
+                    help="free Colab/Kaggle T4 preset: 4-bit, shorter context")
+    ap.add_argument("--push-to-hub", metavar="REPO",
+                    help="upload the adapter (and GGUF) to the HF Hub, e.g. you/axon-1 (needs HF_TOKEN)")
     args = ap.parse_args()
 
-    cfg = load_config(args.model.removeprefix("agentcode-"))
+    cfg = load_config(args.model)
+    if args.colab:
+        cfg["train"]["load_in_4bit"] = True
+        cfg["train"].update({k: v for k, v in cfg.get("colab", {}).items() if k != "note"})
+        cfg["_skip_merged"] = True
     data_dir = args.data or HERE / "data" / cfg["name"]
     if args.backend == "openai":
         train_openai(cfg, data_dir, args.base)
@@ -323,15 +396,15 @@ def main() -> None:
     print(f"{cfg['name']}: {cfg['base_model']} ({cfg.get('params', '?')})")
 
     if args.trainer == "hf":
-        train_hf(cfg, data_dir, out_dir, args.gguf, args.max_steps)
+        train_hf(cfg, data_dir, out_dir, args.gguf, args.max_steps, args.push_to_hub)
         return
     try:
-        train_unsloth(cfg, data_dir, out_dir, args.gguf, args.max_steps)
+        train_unsloth(cfg, data_dir, out_dir, args.gguf, args.max_steps, args.push_to_hub)
     except UnslothUnavailable as e:
         if args.trainer == "unsloth":
             raise SystemExit(f"Unsloth can't train {cfg['base_model']}: {e}")
         print(f"Unsloth unavailable for {cfg['base_model']} ({e}); using transformers + PEFT.")
-        train_hf(cfg, data_dir, out_dir, args.gguf, args.max_steps)
+        train_hf(cfg, data_dir, out_dir, args.gguf, args.max_steps, args.push_to_hub)
 
 
 if __name__ == "__main__":

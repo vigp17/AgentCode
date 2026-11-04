@@ -17,20 +17,19 @@ import prepare_data  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def reset_registry(monkeypatch):
-    for k in ("AGENTCODE_FT_API_BASE", "AGENTCODE_FT_LIGHT_API_BASE",
-              "AGENTCODE_FT_MEDIUM_API_BASE", "AGENTCODE_FT_HEAVY_API_BASE"):
+    for k in ("AGENTCODE_FT_AXON_1_API_BASE", "AGENTCODE_FT_TANDAV_1_API_BASE",
+              "AGENTCODE_FT_VEDA_1_API_BASE", "AGENTCODE_FT_CHITRA_1_API_BASE"):
         monkeypatch.delenv(k, raising=False)
     finetuned.configure({})
     yield
     finetuned.configure({})
 
 
-def test_three_builtin_finetunes_one_per_tier():
-    models = [m for m in finetuned.all_models(include_unconfigured=True)
-              if m.name.startswith("agentcode-")]
-    assert sorted(m.name for m in models) == ["agentcode-heavy", "agentcode-light", "agentcode-medium"]
-    assert {m.tier for m in models} == {"light", "medium", "heavy"}
-    assert all(m.base_model.startswith("Qwen/") for m in models)
+def test_lineup_is_the_only_builtin_set():
+    models = finetuned.all_models(include_unconfigured=True)
+    assert [m.name for m in models] == ["axon-1", "tandav-1", "veda-1", "chitra-1"]
+    assert {m.name: m.tier for m in models}["axon-1"] == "medium"
+    assert {m.name: m.tier for m in models}["tandav-1"] == "heavy"
 
 
 def test_unconfigured_finetunes_are_hidden_from_picker():
@@ -42,18 +41,16 @@ def test_unconfigured_finetunes_are_hidden_from_picker():
 
 
 def test_env_configures_endpoints(monkeypatch):
-    monkeypatch.setenv("AGENTCODE_FT_API_BASE", "http://gpu:9000/v1")
-    monkeypatch.setenv("AGENTCODE_FT_HEAVY_API_BASE", "http://big-gpu:9000/v1")
+    monkeypatch.setenv("AGENTCODE_FT_TANDAV_1_API_BASE", "http://big-gpu:9000/v1")
     finetuned.configure({})
-    assert finetuned.get("agentcode-light").api_base == "http://gpu:9000/v1"
-    assert finetuned.get("agentcode-heavy").api_base == "http://big-gpu:9000/v1"
-    assert len(finetuned.all_models()) == 3
+    assert finetuned.get("tandav-1").api_base == "http://big-gpu:9000/v1"
+    assert [m.name for m in finetuned.all_models()] == ["tandav-1"]
 
 
 def test_completion_kwargs_route_to_endpoint(monkeypatch):
-    finetuned.configure({"agentcode-medium": {"api_base": "http://h:8002/v1", "served_name": "ac-med"}})
-    kw = finetuned.completion_kwargs("agentcode-medium")
-    assert kw["model"] == "openai/ac-med"
+    finetuned.configure({"axon-1": {"api_base": "http://h:8002/v1", "served_name": "qwen2.5-coder:14b"}})
+    kw = finetuned.completion_kwargs("axon-1")
+    assert kw["model"] == "openai/qwen2.5-coder:14b"
     assert kw["api_base"] == "http://h:8002/v1"
     assert kw["api_key"]  # litellm's openai client needs a non-empty key
     assert finetuned.completion_kwargs("claude-sonnet-5") == {"model": "claude-sonnet-5"}
@@ -66,24 +63,23 @@ def test_settings_can_add_extra_finetunes():
     assert model_pricing("my-sql-expert") == (0.5, 1.5)
 
 
-def test_router_routes_between_finetunes():
-    finetuned.configure({n: {"api_base": "http://h/v1"} for n in
-                         ("agentcode-light", "agentcode-medium", "agentcode-heavy")})
-    r = ModelRouter(provider=ModelRouter.detect_provider("agentcode-medium"),
-                    default_model="agentcode-medium")
+def test_router_routes_between_lineup_models():
+    finetuned.configure({n: {"api_base": "http://h/v1"} for n in ("axon-1", "tandav-1", "veda-1")})
+    r = ModelRouter(provider=ModelRouter.detect_provider("axon-1"), default_model="axon-1")
     assert r.provider == "agentcode"
-    assert r.route("explain this")[0] == "agentcode-light"
-    assert r.route("refactor the entire codebase")[0] == "agentcode-heavy"
-    assert model_pricing("agentcode-heavy") == (0.0, 0.0)
+    assert r.route("write a function to parse dates")[0] == "axon-1"
+    assert r.route("refactor the entire codebase")[0] == "tandav-1"
+    assert r.route("explain this")[0] == "axon-1"  # no light model → default
+    assert model_pricing("tandav-1") == (0.0, 0.0)
 
 
 def test_settings_parse_finetuned_and_training():
     s = _dict_to_settings({
-        "finetuned": {"agentcode-light": {"api_base": "http://x/v1"}},
+        "finetuned": {"axon-1": {"api_base": "http://x/v1"}},
         "training": {"log_trajectories": True},
         "model": {"auto_tiers": False},
     })
-    assert s.finetuned["agentcode-light"]["api_base"] == "http://x/v1"
+    assert s.finetuned["axon-1"]["api_base"] == "http://x/v1"
     assert s.training.log_trajectories is True
     assert s.model.auto_discover is True and s.model.auto_tiers is False
 
@@ -146,14 +142,68 @@ def test_prepare_data_rejects_broken_trajectories(mutate):
     assert prepare_data.clean({"messages": turn, "tools": TOOLS}) is None
 
 
-def test_tier_slices():
-    user, msgs = _turn()
-    rec = prepare_data.clean({"messages": [{"role": "system", "content": "s"},
-                                           *trajectories.turn_slice(msgs, user)], "tools": TOOLS})
-    assert prepare_data.fits_tier(rec, {"max_tool_calls": 3, "max_chars": 24000})
-    assert not prepare_data.fits_tier(rec, {"max_tool_calls": 0, "max_chars": None})
-    for tier in ("light", "medium", "heavy"):
-        assert prepare_data.load_config(tier)["name"] == f"agentcode-{tier}"
+def _rec(n_calls=1, answer="It prints 1.", tool="read_file", tool_result="print(1)", verify=False):
+    """A clean trajectory with n_calls tool calls."""
+    msgs = [{"role": "system", "content": "sys"}, {"role": "user", "content": "task"}]
+    for i in range(n_calls):
+        msgs.append({"role": "assistant", "content": "", "tool_calls": [
+            {"id": f"c{i}", "type": "function",
+             "function": {"name": tool, "arguments": json.dumps({"path": f"f{i}.py"})}}]})
+        msgs.append({"role": "tool", "tool_call_id": f"c{i}", "content": tool_result})
+    if verify:
+        msgs.append({"role": "assistant", "content": "", "tool_calls": [
+            {"id": "v", "type": "function",
+             "function": {"name": "run_command", "arguments": '{"command": "pytest -q"}'}}]})
+        msgs.append({"role": "tool", "tool_call_id": "v", "content": "3 passed"})
+    msgs.append({"role": "assistant", "content": answer})
+    tools = [{"type": "function", "function": {"name": n, "parameters": {}}}
+             for n in ("read_file", "edit_file", "run_command", "search_text")]
+    return prepare_data.clean({"messages": msgs, "tools": tools, "meta": {"project": "p"}})
+
+
+def test_effort_labels_follow_work_done():
+    assert prepare_data.effort_for(_rec(1)) == "low"
+    assert prepare_data.effort_for(_rec(5)) == "medium"
+    assert prepare_data.effort_for(_rec(12)) == "high"
+
+
+def test_axon_examples_carry_the_same_effort_tag_the_server_sends():
+    rec = prepare_data.with_effort_tag(_rec(5))
+    assert rec["messages"][0]["content"] == "sys" + finetuned.effort_system_suffix("medium")
+    assert rec["meta"]["effort"] == "medium"
+
+
+def test_veda_slice_keeps_only_read_only_research():
+    long_answer = "Spec: " + "x" * 900
+    research = _rec(3, answer=long_answer, tool="search_text")
+    coding = _rec(3, answer=long_answer, tool="edit_file")
+    short = _rec(3, answer="ok", tool="read_file")
+    veda = prepare_data.load_config("veda-1")
+    assert prepare_data.build_slice([research, coding, short], veda) == [research]
+
+
+def test_slices_per_model():
+    axon, tandav = prepare_data.load_config("axon-1"), prepare_data.load_config("tandav-1")
+    tiny, big = _rec(1), _rec(60)
+    assert [r["meta"].get("effort") for r in prepare_data.build_slice([tiny, big], axon)] == ["low"]
+    assert prepare_data.build_slice([tiny, big], tandav) == [big]  # min 3 tool calls, no max
+
+
+def test_reward_prefers_verified_clean_work():
+    edited_then_tested = _rec(2, tool="edit_file", verify=True,
+                              answer="Fixed the off-by-one in the date parser; added a regression test and the suite passes.")
+    errors = _rec(3, tool="read_file", tool_result="Error: File not found: x.py")
+    assert prepare_data.reward(edited_then_tested) == 0.8
+    assert prepare_data.reward(errors) < 0.5
+
+
+def test_reward_penalizes_loops():
+    rec = _rec(1)
+    call = rec["messages"][2]
+    for i in range(3):  # same call repeated
+        rec["messages"].insert(-1, {**call, "tool_calls": [{**call["tool_calls"][0], "id": f"r{i}"}]})
+        rec["messages"].insert(-1, {"role": "tool", "tool_call_id": f"r{i}", "content": "print(1)"})
+    assert prepare_data.reward(rec) <= 0.4
 
 
 # ── model sizes & training loss mask ──────────────────────────────────────────
@@ -161,16 +211,10 @@ def test_tier_slices():
 import train  # noqa: E402  (finetune/ is on sys.path above; no GPU deps at import)
 
 
-def test_bases_match_requested_sizes():
-    bases = {m.tier: m.base_model for m in finetuned.all_models(include_unconfigured=True)
-             if m.name.startswith("agentcode-")}
-    assert bases == {
-        "light": "Qwen/Qwen3-4B-Instruct-2507",            # 4B
-        "medium": "Qwen/Qwen3-14B",                        # ~12B class
-        "heavy": "Qwen/Qwen3-Next-80B-A3B-Instruct",       # 80B MoE
-    }
-    for tier, base in bases.items():  # registry and training configs agree
-        assert prepare_data.load_config(tier)["base_model"] == base
+def test_registry_and_training_configs_agree():
+    for name in ("axon-1", "tandav-1", "veda-1"):
+        assert prepare_data.load_config(name)["base_model"] == finetuned.get(name).base_model
+    assert prepare_data.load_config("tandav-1")["lora"]["r"] == 128  # plan: high-rank adapters
 
 
 def test_assistant_spans_cover_only_replies():

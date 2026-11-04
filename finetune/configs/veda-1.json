@@ -1,0 +1,25 @@
+{
+  "name": "veda-1",
+  "tier": "research",
+  "base_model": "Qwen/Qwen3-14B",
+  "params": "14B dense, hybrid reasoning",
+  "_base_model_note": "The plan suggested DeepSeek-R1-Distill. Its chat template has no tool-calling support, and veda-1 must call search/read tools, so this uses Qwen3-14B: a reasoning model with native tool calls and the same template as axon-1/tandav-1. To use R1-Distill anyway, set base_model to deepseek-ai/DeepSeek-R1-Distill-Qwen-14B and update the template markers in train.py.",
+  "description": "Deep research: reads docs and code, gathers context, writes cited engineering specs.",
+  "chat_template_kwargs": {"enable_thinking": false},
+  "data": {"max_tool_calls": 40, "max_chars": 96000, "research_only": true},
+  "lora": {
+    "r": 32, "alpha": 64, "dropout": 0.0,
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  },
+  "train": {
+    "max_seq_length": 16384,
+    "load_in_4bit": true,
+    "epochs": 2,
+    "learning_rate": 1e-4,
+    "per_device_batch_size": 1,
+    "gradient_accumulation_steps": 16,
+    "warmup_ratio": 0.03
+  },
+  "colab": {"max_seq_length": 4096, "note": "Free T4 (16GB): 4-bit, shorter sequences."},
+  "hardware": "train: 1x 24GB GPU, or a Colab/Kaggle T4 at 4k context. serve: 1x 24GB GPU"
+}

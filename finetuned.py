@@ -1,28 +1,26 @@
 """
 AgentCode — fine-tuned model registry.
 
-AgentCode ships three of its own fine-tuned models, one per routing tier:
+The AgentCode lineup:
 
-    agentcode-light   Qwen3-4B-Instruct-2507        (4B dense)       quick answers, cheap edits
-    agentcode-medium  Qwen3-14B                     (14B dense)      everyday coding tasks
-    agentcode-heavy   Qwen3-Next-80B-A3B-Instruct   (80B MoE, 3B active)  multi-file / long-horizon work
+    axon-1    Qwen2.5-Coder-14B-Instruct   unified code model, low/medium/high effort tags
+    tandav-1  Qwen3-Next-80B-A3B-Instruct  apex architect (80B MoE), up to 50 agent steps
+    veda-1    Qwen3-14B                    deep research: docs, context, cited specs
+    chitra-1  FLUX.1-schnell               image model (for /image)
 
-All three share Qwen's chat template and <tool_call> format, so one training
-recipe, one vLLM tool parser and one fallback parser cover them all.
+The chat models are LoRA fine-tunes trained on AgentCode's own tool-calling
+trajectories (see finetune/), so they speak AgentCode's tool schema natively.
+They share Qwen's chat template and <tool_call> format, so one training recipe,
+one vLLM tool parser and one fallback parser cover them all. Weights are served
+from any OpenAI-compatible endpoint — vLLM, SGLang, Ollama (`/v1`), LM Studio,
+Together, Fireworks, OpenRouter — reached through litellm's `openai/` provider.
 
-They are trained on AgentCode's own tool-calling trajectories (see finetune/),
-so they speak AgentCode's tool schema natively. Weights are served from any
-OpenAI-compatible endpoint — vLLM, SGLang, Ollama (`/v1`), LM Studio, Together,
-Fireworks — and AgentCode reaches them through litellm's `openai/` provider.
+Where each model is served is configured by (highest precedence first):
+  1. settings.json  →  "finetuned": {"axon-1": {"api_base": ..., "served_name": ...}}
+  2. env            →  AGENTCODE_FT_<NAME>_API_BASE, e.g. AGENTCODE_FT_AXON_1_API_BASE
 
-Where each model is served is configured, in order of precedence, by:
-  1. settings.json  →  "finetuned": {"agentcode-medium": {"api_base": ...}}
-  2. env            →  AGENTCODE_FT_<TIER>_API_BASE / AGENTCODE_FT_API_BASE
-  3. default        →  http://localhost:8000/v1   (vLLM's default port)
-
-A fine-tune is only offered in the picker and routing once it has an endpoint
-configured (any of the above other than the default), or settings explicitly
-list it — so users who never trained one don't see dead entries.
+The lineup always appears in the VS Code picker, marked "not connected" until
+it has an endpoint. Extra fine-tunes of your own can be added in settings.
 """
 
 from __future__ import annotations
@@ -37,8 +35,8 @@ DEFAULT_API_BASE = "http://localhost:8000/v1"
 
 @dataclass
 class FineTunedModel:
-    name: str                 # what users type: "agentcode-medium"
-    tier: str                 # "light" | "medium" | "heavy"
+    name: str                 # what users type: "axon-1"
+    tier: str                 # routing tier: "light" | "medium" | "heavy" (or a role)
     label: str
     base_model: str           # Hugging Face id of the base it was tuned from
     served_name: str = ""     # model name the endpoint expects (defaults to name)
@@ -68,21 +66,6 @@ class FineTunedModel:
         }
 
 
-BUILTIN_FINETUNES: list[FineTunedModel] = [
-    FineTunedModel(
-        name="agentcode-light", tier="light", label="AgentCode Light (4B)",
-        base_model="Qwen/Qwen3-4B-Instruct-2507",
-    ),
-    FineTunedModel(
-        name="agentcode-medium", tier="medium", label="AgentCode Medium (14B)",
-        base_model="Qwen/Qwen3-14B",
-    ),
-    FineTunedModel(
-        name="agentcode-heavy", tier="heavy", label="AgentCode Heavy (80B MoE)",
-        base_model="Qwen/Qwen3-Next-80B-A3B-Instruct",
-    ),
-]
-
 # The AgentCode ecosystem: four in-house models, always listed in the VS Code
 # picker (marked "not connected" until an endpoint is configured with
 # AGENTCODE_FT_<NAME>_API_BASE, e.g. AGENTCODE_FT_AXON_1_API_BASE, or settings).
@@ -99,7 +82,7 @@ ECOSYSTEM: list[FineTunedModel] = [
     ),
     FineTunedModel(
         name="veda-1", tier="research", label="veda-1",
-        base_model="deepseek-ai/DeepSeek-R1-Distill-Qwen-14B",
+        base_model="Qwen/Qwen3-14B",
         description="Deep research: docs, web context, cited specs",
     ),
     FineTunedModel(
@@ -124,7 +107,7 @@ def _env_name(name: str) -> str:
     return name.upper().replace("-", "_").replace(".", "_")
 
 
-_registry: dict[str, FineTunedModel] = {m.name: m for m in [*BUILTIN_FINETUNES, *ECOSYSTEM]}
+_registry: dict[str, FineTunedModel] = {m.name: m for m in ECOSYSTEM}
 
 
 def configure(overrides: dict | None = None) -> None:
@@ -132,18 +115,10 @@ def configure(overrides: dict | None = None) -> None:
 
     overrides is {name: {api_base, served_name, api_key_env, label, tier,
     base_model, input_cost_per_mtok, output_cost_per_mtok}}. New names add
-    extra fine-tunes beyond the built-in three.
+    extra fine-tunes beyond the lineup.
     """
     global _registry
-    reg = {m.name: replace(m) for m in BUILTIN_FINETUNES}
-
-    shared = os.environ.get("AGENTCODE_FT_API_BASE")
-    for m in reg.values():
-        per_tier = os.environ.get(f"AGENTCODE_FT_{m.tier.upper()}_API_BASE")
-        if per_tier or shared:
-            m.api_base = per_tier or shared
-            m.configured = True
-
+    reg: dict[str, FineTunedModel] = {}
     for eco in ECOSYSTEM:
         m = replace(eco)
         url = os.environ.get(f"AGENTCODE_FT_{_env_name(m.name)}_API_BASE")

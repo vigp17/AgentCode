@@ -1,12 +1,12 @@
 {
-  "name": "agentcode-heavy",
+  "name": "tandav-1",
   "tier": "heavy",
   "base_model": "Qwen/Qwen3-Next-80B-A3B-Instruct",
   "params": "80B MoE (3B active per token)",
-  "description": "Multi-file, long-horizon agent work. Trained on every trajectory, including the longest. MoE: 80B of knowledge at roughly 3B-per-token inference cost.",
-  "data": {"max_tool_calls": null, "max_chars": 120000},
+  "description": "Apex architect: hardest multi-file, long-horizon work. Trained on every trajectory, including the longest.",
+  "data": {"max_tool_calls": null, "max_chars": 120000, "min_tool_calls": 3},
   "lora": {
-    "r": 32, "alpha": 64, "dropout": 0.0,
+    "r": 128, "alpha": 256, "dropout": 0.0,
     "_target_modules_note": "Attention plus the shared expert. Adapting all 512 routed experts multiplies adapter size for little gain. Check the names with print(model) before a long run.",
     "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj",
                        "shared_expert.gate_proj", "shared_expert.up_proj", "shared_expert.down_proj"]
@@ -18,7 +18,8 @@
     "learning_rate": 5e-5,
     "per_device_batch_size": 1,
     "gradient_accumulation_steps": 16,
-    "warmup_ratio": 0.03
+    "warmup_ratio": 0.03,
+    "deepspeed": "ds_zero2.json"
   },
-  "hardware": "train: 1x 80GB GPU (H100/A100) with 4-bit QLoRA, 2x 80GB for 32k context. serve: 2x 80GB (bf16) or 1x 80GB (FP8)"
+  "hardware": "train: 2-8x 80GB GPUs (H100/A100) with DeepSpeed ZeRO-2 (1x 80GB works at 8k context without it). serve: 2x 80GB (bf16) or 1x 80GB (FP8)"
 }

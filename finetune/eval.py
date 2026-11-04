@@ -2,8 +2,8 @@
 """
 Score a model on held-out AgentCode trajectories (next-action accuracy).
 
-    python finetune/eval.py agentcode-medium
-    python finetune/eval.py agentcode-medium --baseline claude-haiku-4-5
+    python finetune/eval.py axon-1
+    python finetune/eval.py axon-1 --baseline claude-haiku-4-5
 
 For every assistant step in eval.jsonl the model sees the conversation up to
 that point (teacher forcing) and must produce the same next action as the
